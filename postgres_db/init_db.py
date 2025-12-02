@@ -10,11 +10,11 @@ engine = create_engine("postgresql://user:user@localhost:5432/user_db")
 # ...existing code...
 
 # Пути к обработанным данным
-processed_path = "/home/yaroslav/projects/test/data/processed"
+processed_path = "data/processed"
 
 # Выполнение схемы базы данных
 try:
-    with open("/home/yaroslav/projects/test/postgres_db/schema.sql", "r") as f:
+    with open("postgres_db/schema.sql", "r") as f:
         schema_sql = f.read()
     with engine.connect() as conn:
         conn.execute(text(schema_sql))
