@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: medical_db_postgres
+    environment:
+      POSTGRES_USER: meduser
+      POSTGRES_PASSWORD: medpass123
+      POSTGRES_DB: medical_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init-postgres.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./db/seed-data.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meduser -d medical_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: medical_db_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass123
+      MYSQL_DATABASE: medical_db
+      MYSQL_USER: meduser
+      MYSQL_PASSWORD: medpass123
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./db/init-mysql.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./db/seed-data-mysql.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "meduser", "-pmedpass123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: --default-authentication-plugin=mysql_native_password
+
+volumes:
+  postgres_data:
+  mysql_data:
