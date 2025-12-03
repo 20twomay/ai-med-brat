@@ -73,7 +73,7 @@ def send_query(query: str):
         response = requests.post(
             f"{API_URL}/query",
             json={"query": query, "session_id": st.session_state.session_id},
-            timeout=120,
+            timeout=300,
         )
 
         if response.status_code == 200:
