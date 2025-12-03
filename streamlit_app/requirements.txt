@@ -1,0 +1,8 @@
+# Streamlit
+streamlit==1.51.0
+
+# HTTP клиент
+requests==2.32.5
+
+# Утилиты
+python-dotenv==1.1.1
