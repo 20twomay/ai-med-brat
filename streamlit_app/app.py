@@ -3,6 +3,7 @@
 import asyncio
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import streamlit as st
 
 # Настройки API
 API_URL = os.getenv("API_URL", "http://localhost:8000")
+POLLING_INTERVAL = 2  # Секунды между проверками статуса
 
 # Настройка страницы
 st.set_page_config(
@@ -63,7 +65,14 @@ with st.sidebar:
     if st.session_state.agent_status:
         st.header("🤖 Статус агента")
         status = st.session_state.agent_status
-        status_emoji = {"running": "⏳", "waiting_feedback": "❓", "completed": "✅", "error": "❌"}
+        status_emoji = {
+            "created": "🆕",
+            "router_processing": "🔍",
+            "waiting_feedback": "❓",
+            "query_processing": "⏳",
+            "completed": "✅",
+            "error": "❌"
+        }
         st.info(f"{status_emoji.get(status, '❓')} {status}")
 
 
@@ -105,10 +114,13 @@ def send_feedback(feedback: str):
         return None
 
 
-def get_status():
+def get_status(session_id: str = None):
     """Получение статуса сессии."""
+    if session_id is None:
+        session_id = st.session_state.session_id
+
     try:
-        response = requests.get(f"{API_URL}/status/{st.session_state.session_id}", timeout=10)
+        response = requests.get(f"{API_URL}/status/{session_id}", timeout=30)
 
         if response.status_code == 200:
             return response.json()
@@ -120,6 +132,37 @@ def get_status():
     except Exception as e:
         st.error(f"Ошибка при получении статуса: {str(e)}")
         return None
+
+
+def poll_until_complete(session_id: str, max_wait_time: int = 300):
+    """
+    Опрашивает статус сессии до завершения или таймаута.
+
+    Args:
+        session_id: ID сессии для опроса
+        max_wait_time: Максимальное время ожидания в секундах
+
+    Returns:
+        Финальный статус сессии или None при ошибке
+    """
+    start_time = time.time()
+
+    while (time.time() - start_time) < max_wait_time:
+        status = get_status(session_id)
+
+        if not status:
+            return None
+
+        # Терминальные статусы - возвращаем результат
+        if status["status"] in ["waiting_feedback", "completed", "error"]:
+            return status
+
+        # Ждём перед следующей проверкой
+        time.sleep(POLLING_INTERVAL)
+
+    # Таймаут
+    st.warning("⏰ Превышено время ожидания. Попробуйте проверить статус позже.")
+    return None
 
 
 # Отображение истории сообщений
@@ -160,23 +203,29 @@ elif st.session_state.waiting_for_feedback:
             st.session_state.messages.append({"role": "user", "content": feedback_input})
 
             # Отправляем обратную связь
-            with st.spinner("⏳ Агент обрабатывает ваш ответ..."):
-                result = send_feedback(feedback_input)
+            result = send_feedback(feedback_input)
 
             if result:
                 st.session_state.agent_status = result["status"]
 
-                if result["message"]:
-                    # Добавляем сообщение с графиками
-                    msg_data = {
-                        "role": "assistant",
-                        "content": result["message"],
-                        "charts": result.get("charts", []),
-                    }
-                    st.session_state.messages.append(msg_data)
+                # Ждём завершения обработки
+                with st.spinner("⏳ Агент обрабатывает ваш ответ..."):
+                    result = poll_until_complete(st.session_state.session_id)
 
-                # Проверяем, нужно ли еще уточнение
-                st.session_state.waiting_for_feedback = result.get("needs_feedback", False)
+                if result:
+                    st.session_state.agent_status = result["status"]
+
+                    if result["message"] and result["message"] != "Processing your feedback...":
+                        # Добавляем сообщение с графиками
+                        msg_data = {
+                            "role": "assistant",
+                            "content": result["message"],
+                            "charts": result.get("charts", []),
+                        }
+                        st.session_state.messages.append(msg_data)
+
+                    # Проверяем, нужно ли еще уточнение
+                    st.session_state.waiting_for_feedback = result.get("needs_feedback", False)
 
             st.rerun()
 
@@ -196,22 +245,28 @@ else:
             st.session_state.messages.append({"role": "user", "content": user_input})
 
             # Отправляем запрос агенту
-            with st.spinner("⏳ Агент обрабатывает ваш запрос..."):
-                result = send_query(user_input)
+            result = send_query(user_input)
 
             if result:
                 st.session_state.agent_status = result["status"]
 
-                if result["message"]:
-                    # Добавляем сообщение с графиками
-                    msg_data = {
-                        "role": "assistant",
-                        "content": result["message"],
-                        "charts": result.get("charts", []),
-                    }
-                    st.session_state.messages.append(msg_data)
+                # Ждём завершения обработки
+                with st.spinner("⏳ Агент обрабатывает ваш запрос..."):
+                    result = poll_until_complete(st.session_state.session_id)
 
-                # Проверяем, требуется ли обратная связь
-                st.session_state.waiting_for_feedback = result.get("needs_feedback", False)
+                if result:
+                    st.session_state.agent_status = result["status"]
+
+                    if result["message"] and result["message"] != "Query submitted for processing":
+                        # Добавляем сообщение с графиками
+                        msg_data = {
+                            "role": "assistant",
+                            "content": result["message"],
+                            "charts": result.get("charts", []),
+                        }
+                        st.session_state.messages.append(msg_data)
+
+                    # Проверяем, требуется ли обратная связь
+                    st.session_state.waiting_for_feedback = result.get("needs_feedback", False)
 
             st.rerun()

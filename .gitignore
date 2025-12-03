@@ -1,5 +1,7 @@
 data/
 __pycache__/
 .env
-.exe
+.exe1
 redis/
+venv/
+fastapi_app/charts

@@ -1,0 +1,90 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: ai-med-brat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ai-med-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: ai-med-brat-postgres
+    environment:
+      POSTGRES_DB: medical_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./data/postgres_db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./data/postgres_db/load_data.sql:/docker-entrypoint-initdb.d/02-load_data.sql
+      - ./data/processed:/docker-entrypoint-initdb.d/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ai-med-network
+    restart: unless-stopped
+
+  fastapi:
+    build:
+      context: ./fastapi_app
+      dockerfile: Dockerfile
+    container_name: ai-med-brat-fastapi
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/medical_db
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - API_BASE_URL=${API_BASE_URL}
+      - MODEL_NAME=${MODEL_NAME}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-medical-analytics-agent}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-}
+    volumes:
+      - ./fastapi_app/charts:/app/charts
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-med-network
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: ./streamlit_app
+      dockerfile: Dockerfile
+    container_name: ai-med-brat-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://fastapi:8000
+    depends_on:
+      - fastapi
+    networks:
+      - ai-med-network
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  ai-med-network:
+    driver: bridge
