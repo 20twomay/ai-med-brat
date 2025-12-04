@@ -34,7 +34,7 @@ class MedicalAnalyticsAgent:
         sys_msg = SystemMessage(
             content=CLARIFICATION_PROMPT.format(
                 db_prompt=DB_PROMPT,
-                current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                current_datetime=datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
             )
         )
         

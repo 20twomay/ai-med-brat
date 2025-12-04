@@ -1,23 +1,21 @@
 import logging
 import os
 
+from agent.agents import MedicalAnalyticsAgent
+from agent.models import ClarifyRequest, ClarifyResponse, ExecuteRequest, ExecuteResponse
 from dotenv import load_dotenv
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from langchain_openai import ChatOpenAI
+from langsmith import Client, traceable
 from sqlalchemy import text
-
-from agent.agents import MedicalAnalyticsAgent
-from agent.models import ClarifyRequest, ClarifyResponse, ExecuteRequest, ExecuteResponse
 
 load_dotenv()
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -38,6 +36,8 @@ if not MODEL_NAME:
     raise ValueError("MODEL_NAME environment variable is required")
 
 llm = ChatOpenAI(model=MODEL_NAME, base_url=API_BASE_URL, api_key=OPENROUTER_API_KEY)
+
+ls = Client()
 
 # Инициализация агента
 agent = MedicalAnalyticsAgent(llm)
@@ -67,7 +67,7 @@ app.mount("/charts", StaticFiles(directory=CHARTS_DIR), name="charts")
 async def clarify_query(request: ClarifyRequest):
     """
     Проверяет запрос пользователя и определяет, нужны ли уточнения.
-    
+
     Возвращает:
     - need_feedback=False: запрос готов к выполнению, можно сразу отправлять в /execute
     - need_feedback=True: нужны уточнения, показать пользователю варианты (suggestions)
@@ -80,10 +80,11 @@ async def clarify_query(request: ClarifyRequest):
 
 
 @app.post("/execute", response_model=ExecuteResponse)
+@traceable(name="execute_query", run_type="chain")
 async def execute_query(request: ExecuteRequest):
     """
     Выполняет анализ данных по запросу пользователя.
-    
+
     Принимает уже уточненный/валидированный запрос и выполняет его:
     - Строит SQL запросы
     - Визуализирует данные
@@ -104,12 +105,13 @@ async def health_check():
         "service": "Medical Analytics Agent v2",
         "version": "2.0.0",
         "database": "unknown",
-        "s3": "unknown"
+        "s3": "unknown",
     }
-    
+
     # Проверка подключения к БД
     try:
         from agent.tools import get_db_engine
+
         engine = get_db_engine()
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -118,10 +120,11 @@ async def health_check():
         logger.error(f"Database health check failed: {e}")
         health_status["database"] = "disconnected"
         health_status["status"] = "degraded"
-    
+
     # Проверка подключения к S3
     try:
         from agent.tools import get_s3_client
+
         s3_client = get_s3_client()
         if s3_client:
             s3_client.list_buckets()
@@ -131,10 +134,11 @@ async def health_check():
     except Exception as e:
         logger.error(f"S3 health check failed: {e}")
         health_status["s3"] = "disconnected"
-    
+
     return health_status
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
