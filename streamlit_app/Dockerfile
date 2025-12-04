@@ -12,5 +12,8 @@ COPY . .
 # Экспортируем порт
 EXPOSE 8501
 
-# Запускаем Streamlit
-CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+# Отключаем буферизацию для логов
+ENV PYTHONUNBUFFERED=1
+
+# Запускаем Streamlit с логированием
+CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--logger.level", "debug"]

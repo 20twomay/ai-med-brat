@@ -1,21 +1,4 @@
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: ai-med-brat-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    networks:
-      - ai-med-network
-    restart: unless-stopped
-
   postgres:
     image: postgres:15-alpine
     container_name: ai-med-brat-postgres
@@ -47,7 +30,6 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/medical_db
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - API_BASE_URL=${API_BASE_URL}
@@ -55,13 +37,39 @@ services:
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-medical-analytics-agent}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - S3_BUCKET=charts
+      - S3_PUBLIC_URL=http://localhost:9000
     volumes:
       - ./fastapi_app/charts:/app/charts
     depends_on:
-      redis:
-        condition: service_healthy
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - ai-med-network
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ai-med-brat-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - ai-med-network
     restart: unless-stopped
@@ -82,8 +90,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  redis_data:
   postgres_data:
+  minio_data:
 
 networks:
   ai-med-network:
