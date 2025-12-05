@@ -3,4 +3,5 @@ __pycache__/
 .exe1
 redis/
 venv/
+notebooks/
 fastapi_app/charts
