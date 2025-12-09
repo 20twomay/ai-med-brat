@@ -62,7 +62,7 @@ async def execute_query(request: ExecuteRequest):
             "start_time": start_time,
         }
         result = None
-        for chunk in compiled_graph.stream(state, config, stream_mode="values"):
+        async for chunk in compiled_graph.astream(state, config, stream_mode="values"):
             result = chunk
 
         # Собираем ответ

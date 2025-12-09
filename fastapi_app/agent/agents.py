@@ -68,11 +68,11 @@ class State(TypedDict):
     start_time: float  # Время начала выполнения
 
 
-def node_worker(state: State) -> State:
+async def node_worker(state: State) -> State:
     sys_prompt = SystemMessage(
-        f"Ты помощник, который выполняет SQL запросы к базе данных медицинских записей.\n{DB_PROMPT}"
+        f"Ты помощник, который выполняет SQL запросы к базе данных медицинских записей.\n если ты считаешь что вопрос не по теме или он не полный можешь уточнить\n{DB_PROMPT}"
     )
-    response = llm_with_tools.invoke([sys_prompt] + state["messages"])
+    response = await llm_with_tools.ainvoke([sys_prompt] + state["messages"])
 
     # Подсчет токенов и cost из response_metadata
     input_tokens = state.get("input_tokens", 0)
@@ -93,7 +93,7 @@ def node_worker(state: State) -> State:
     }
 
 
-def node_tools(state: State, config: RunnableConfig) -> State:
+async def node_tools(state: State, config: RunnableConfig) -> State:
     last_message = state["messages"][-1]
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
@@ -111,7 +111,7 @@ def node_tools(state: State, config: RunnableConfig) -> State:
 
     # SQL
     if tool_name == "execute_sql_tool":
-        result = execute_sql_tool.invoke(input=tool_args, config=config)
+        result = await execute_sql_tool.ainvoke(input=tool_args, config=config)
         try:
             tool_message = ToolMessage(
                 content=result,
@@ -139,7 +139,7 @@ def node_tools(state: State, config: RunnableConfig) -> State:
     # Plotting
     elif tool_name == "plot_chart_tool":
         try:
-            result = plot_chart_tool.invoke(input=tool_args, config=config)
+            result = await plot_chart_tool.ainvoke(input=tool_args, config=config)
             tool_message = ToolMessage(
                 content=result,
                 tool_call_id=tool_id,
@@ -181,11 +181,11 @@ def conditional_tools(state: State) -> Literal["tools", "continue"]:
     return "tools"
 
 
-def node_final_report(state: State) -> State:
+async def node_final_report(state: State) -> State:
     sys_prompt = SystemMessage(
         "Создай краткий итоговый отчет по выполненной работе. Не искажай пути, полученные в результате выполнения инструментов."
     )
-    response = llm.invoke([sys_prompt] + state["messages"])
+    response = await llm.ainvoke([sys_prompt] + state["messages"])
 
     # Подсчет токенов и cost из response_metadata
     input_tokens = state.get("input_tokens", 0)

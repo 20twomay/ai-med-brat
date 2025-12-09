@@ -62,7 +62,7 @@ class PlotChartInput(BaseModel):
 
 
 @tool(args_schema=PlotChartInput)
-def plot_chart_tool(
+async def plot_chart_tool(
     path_to_df: str,
     chart_type: str,
     x: str,
@@ -74,9 +74,12 @@ def plot_chart_tool(
     config: RunnableConfig = None,
 ) -> str:
     """Строит интерактивный plotly-график и сохраняет fig.to_json() в S3."""
+    import asyncio
+
     thread_id = config["configurable"]["thread_id"]
     try:
-        response = MINIO_CLIENT.get_object(S3_BUCKET, path_to_df)
+        # Async MinIO операции через to_thread
+        response = await asyncio.to_thread(MINIO_CLIENT.get_object, S3_BUCKET, path_to_df)
         df = pd.read_csv(io.BytesIO(response.read()))
         response.close()
         response.release_conn()
@@ -93,7 +96,9 @@ def plot_chart_tool(
         fig_json = fig.to_json()
         fig_bytes = fig_json.encode("utf-8")
         object_name = f"{thread_id}/plot_{uuid.uuid4()}.json"
-        MINIO_CLIENT.put_object(
+
+        await asyncio.to_thread(
+            MINIO_CLIENT.put_object,
             bucket_name=S3_BUCKET,
             object_name=object_name,
             data=io.BytesIO(fig_bytes),
@@ -110,17 +115,23 @@ class ExecuteSQLInput(BaseModel):
 
 
 @tool(args_schema=ExecuteSQLInput)
-def execute_sql_tool(
+async def execute_sql_tool(
     query: str,
     config: RunnableConfig = None,
 ) -> str:
     """Выполняет SQL запрос и сохраняет результат в S3."""
+    import asyncio
+
     thread_id = config["configurable"]["thread_id"]
     try:
         engine = get_db_engine()
 
-        with engine.connect() as conn:
-            df = pd.read_sql(text(query), conn)
+        # Async DB операция через to_thread
+        def run_query():
+            with engine.connect() as conn:
+                return pd.read_sql(text(query), conn)
+
+        df = await asyncio.to_thread(run_query)
 
         if df.empty:
             return "Query executed successfully but returned no results."
@@ -130,7 +141,8 @@ def execute_sql_tool(
         csv_buffer.seek(0)
         object_name = f"{thread_id}/query_results.csv"
 
-        MINIO_CLIENT.put_object(
+        await asyncio.to_thread(
+            MINIO_CLIENT.put_object,
             bucket_name=S3_BUCKET,
             object_name=object_name,
             data=csv_buffer,
