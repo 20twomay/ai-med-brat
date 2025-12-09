@@ -1,140 +1,57 @@
-import ast
+import io
 import logging
 import os
 import uuid
 from typing import Any, Optional
 
-import boto3
-from botocore.client import Config
-import matplotlib
-
-matplotlib.use("Agg")  # Неинтерактивный бэкенд для серверного использования
-import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
+import plotly.express as px
 from dotenv import load_dotenv
 from langchain.tools import tool
+from langchain_core.runnables import RunnableConfig
+from minio import Minio
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, text
 
-load_dotenv()
-
+# Инициализация логгера
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Загрузка переменных окружения
+load_dotenv()
 
-# S3/MinIO configuration
+# PostgreSQL
+DATABASE_ENDPOINT = os.getenv("DATABASE_ENDPOINT")
+
+# S3/MinIO
 S3_ENDPOINT = os.getenv("S3_ENDPOINT")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
 S3_SECRET_KEY = os.getenv("S3_SECRET_KEY")
-S3_BUCKET = os.getenv("S3_BUCKET", "charts")
-S3_PUBLIC_URL = os.getenv("S3_PUBLIC_URL", "http://localhost:9000")
+S3_BUCKET = os.getenv("S3_BUCKET")
+
+# Убираем схему протокола из endpoint для minio клиента
+if S3_ENDPOINT:
+    S3_ENDPOINT = S3_ENDPOINT.replace("http://", "").replace("https://", "")
+
+MINIO_CLIENT = Minio(
+    S3_ENDPOINT,
+    access_key=S3_ACCESS_KEY,
+    secret_key=S3_SECRET_KEY,
+    secure=False,
+)
+
+if not MINIO_CLIENT.bucket_exists(S3_BUCKET):
+    MINIO_CLIENT.make_bucket(S3_BUCKET)
 
 
 def get_db_engine():
     """Создает подключение к базе данных"""
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL environment variable is not set")
-    return create_engine(DATABASE_URL)
-
-
-def get_s3_client():
-    """Создает S3 клиент для MinIO"""
-    if not all([S3_ENDPOINT, S3_ACCESS_KEY, S3_SECRET_KEY]):
-        logger.warning("S3 configuration incomplete, charts will be saved locally only")
-        return None
-    
-    try:
-        s3_client = boto3.client(
-            's3',
-            endpoint_url=S3_ENDPOINT,
-            aws_access_key_id=S3_ACCESS_KEY,
-            aws_secret_access_key=S3_SECRET_KEY,
-            config=Config(signature_version='s3v4'),
-            region_name='us-east-1'
-        )
-        
-        # Создаем bucket если не существует
-        try:
-            s3_client.head_bucket(Bucket=S3_BUCKET)
-        except:
-            s3_client.create_bucket(Bucket=S3_BUCKET)
-            logger.info(f"Created S3 bucket: {S3_BUCKET}")
-            
-            # Устанавливаем политику публичного чтения
-            bucket_policy = {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Sid": "PublicRead",
-                        "Effect": "Allow",
-                        "Principal": "*",
-                        "Action": ["s3:GetObject"],
-                        "Resource": [f"arn:aws:s3:::{S3_BUCKET}/*"]
-                    }
-                ]
-            }
-            import json
-            s3_client.put_bucket_policy(Bucket=S3_BUCKET, Policy=json.dumps(bucket_policy))
-        
-        return s3_client
-    except Exception as e:
-        logger.error(f"Failed to initialize S3 client: {e}")
-        return None
-
-
-def upload_to_s3(filepath: str, filename: str) -> Optional[str]:
-    """Загружает файл в S3 и возвращает публичный URL"""
-    s3_client = get_s3_client()
-    if not s3_client:
-        return None
-    
-    try:
-        s3_client.upload_file(
-            filepath,
-            S3_BUCKET,
-            filename,
-            ExtraArgs={'ContentType': 'image/png'}
-        )
-        
-        # Формируем публичный URL
-        public_url = f"{S3_PUBLIC_URL}/{S3_BUCKET}/{filename}"
-        logger.info(f"Uploaded chart to S3: {public_url}")
-        return public_url
-    except Exception as e:
-        logger.error(f"Failed to upload to S3: {e}")
-        return None
-
-
-class ExecuteSQLInput(BaseModel):
-    query: str = Field(description="SQL query to execute")
-
-
-@tool(args_schema=ExecuteSQLInput)
-def execute_sql_tool(query: str) -> list[dict[str, Any]] | str:
-    """Выполняет SQL запрос и возвращает результат как список словарей."""
-    try:
-        logger.info(f"Executing SQL query: {query[:100]}...")
-        engine = get_db_engine()
-        if "limit" not in query.lower():
-            query = query.rstrip(";") + " LIMIT 25;"
-
-        with engine.connect() as conn:
-            df = pd.read_sql(text(query), conn)
-
-        if df.empty:
-            logger.info("Query returned no results")
-            return "Query executed successfully but returned no results."
-
-        logger.info(f"Query returned {len(df)} rows")
-        return df.to_dict(orient="records")
-    except Exception as e:
-        logger.error(f"SQL Error: {str(e)}", exc_info=True)
-        return f"SQL Error: {str(e)}"
+    if not DATABASE_ENDPOINT:
+        raise ValueError("DATABASE_ENDPOINT environment variable is not set")
+    return create_engine(DATABASE_ENDPOINT)
 
 
 class PlotChartInput(BaseModel):
-    df: list[dict] | str = Field(description="DataFrame data as list of dicts")
+    path_to_df: str = Field(description="Path to the DataFrame")
     chart_type: str = Field(description="Type of chart: barplot, lineplot, scatterplot")
     x: str = Field(description="Column name for x-axis")
     y: str = Field(description="Column name for y-axis")
@@ -146,7 +63,7 @@ class PlotChartInput(BaseModel):
 
 @tool(args_schema=PlotChartInput)
 def plot_chart_tool(
-    df: list[dict],
+    path_to_df: str,
     chart_type: str,
     x: str,
     y: str,
@@ -154,66 +71,72 @@ def plot_chart_tool(
     title: str = None,
     xlabel: str = None,
     ylabel: str = None,
+    config: RunnableConfig = None,
 ) -> str:
-    """Строит график и возвращает путь к файлу."""
+    """Строит интерактивный plotly-график и сохраняет fig.to_json() в S3."""
+    thread_id = config["configurable"]["thread_id"]
     try:
-        logger.info(f"Creating {chart_type} chart: x={x}, y={y}")
-        if not df:
-            return "No data to plot."
-
-        df = pd.DataFrame(ast.literal_eval(df)) if isinstance(df, str) else pd.DataFrame(df)
-
-        plt.figure(figsize=(10, 6))
+        response = MINIO_CLIENT.get_object(S3_BUCKET, path_to_df)
+        df = pd.read_csv(io.BytesIO(response.read()))
+        response.close()
+        response.release_conn()
 
         if chart_type == "barplot":
-            sns.barplot(data=df, x=x, y=y, hue=hue)
+            fig = px.bar(df, x=x, y=y, color=hue, title=title, labels={x: xlabel, y: ylabel})
         elif chart_type == "lineplot":
-            sns.lineplot(data=df, x=x, y=y, hue=hue)
+            fig = px.line(df, x=x, y=y, color=hue, title=title, labels={x: xlabel, y: ylabel})
         elif chart_type == "scatterplot":
-            sns.scatterplot(data=df, x=x, y=y, hue=hue)
+            fig = px.scatter(df, x=x, y=y, color=hue, title=title, labels={x: xlabel, y: ylabel})
         else:
             return f"Unsupported chart type: {chart_type}"
 
-        title = title if title is not None else f"{chart_type}_{x}_by_{y}"
-        plt.title(title)
-
-        if xlabel:
-            plt.xlabel(xlabel)
-        if ylabel:
-            plt.ylabel(ylabel)
-
-        plt.xticks(rotation=45, ha="right")
-
-        ax = plt.gca()
-        xlabels = ax.get_xticklabels()
-        new_labels = [
-            label.get_text()[:30] + "..." if len(label.get_text()) > 30 else label.get_text()
-            for label in xlabels
-        ]
-        ax.set_xticks(ax.get_xticks())
-        ax.set_xticklabels(new_labels, rotation=45, ha="right")
-
-        plt.tight_layout()
-
-        # Создаем папку для графиков если её нет
-        charts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "charts")
-        os.makedirs(charts_dir, exist_ok=True)
-
-        filename = f"plot_{uuid.uuid4()}.png"
-        filepath = os.path.join(charts_dir, filename)
-        plt.savefig(filepath)
-        plt.close()
-
-        logger.info(f"Chart saved locally: {filename}")
-        
-        # Пытаемся загрузить в S3
-        s3_url = upload_to_s3(filepath, filename)
-        if s3_url:
-            # Возвращаем S3 URL
-            return f"CHART_GENERATED:{filename}|{s3_url}"
-        else:
-            # Fallback на локальный путь
-            return f"CHART_GENERATED:{filename}"
+        fig_json = fig.to_json()
+        fig_bytes = fig_json.encode("utf-8")
+        object_name = f"{thread_id}/plot_{uuid.uuid4()}.json"
+        MINIO_CLIENT.put_object(
+            bucket_name=S3_BUCKET,
+            object_name=object_name,
+            data=io.BytesIO(fig_bytes),
+            length=len(fig_bytes),
+            content_type="application/json",
+        )
+        return f"Plotly figure JSON saved to MinIO: {object_name}"
     except Exception as e:
-        logger.error(f"Plotting Error: {str(e)}", exc_info=True)
         return f"Plotting Error: {str(e)}"
+
+
+class ExecuteSQLInput(BaseModel):
+    query: str = Field(description="SQL запрос для выполнения")
+
+
+@tool(args_schema=ExecuteSQLInput)
+def execute_sql_tool(
+    query: str,
+    config: RunnableConfig = None,
+) -> str:
+    """Выполняет SQL запрос и сохраняет результат в S3."""
+    thread_id = config["configurable"]["thread_id"]
+    try:
+        engine = get_db_engine()
+
+        with engine.connect() as conn:
+            df = pd.read_sql(text(query), conn)
+
+        if df.empty:
+            return "Query executed successfully but returned no results."
+
+        csv_buffer = io.BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        object_name = f"{thread_id}/query_results.csv"
+
+        MINIO_CLIENT.put_object(
+            bucket_name=S3_BUCKET,
+            object_name=object_name,
+            data=csv_buffer,
+            length=csv_buffer.getbuffer().nbytes,
+            content_type="text/csv",
+        )
+        return f"First 25 rows:\n{df.head(25)}\nShape: {df.shape}\nFile saved to MinIO at '{object_name}'"
+    except Exception as e:
+        return f"SQL Error: {str(e)}"

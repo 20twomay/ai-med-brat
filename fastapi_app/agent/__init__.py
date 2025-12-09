@@ -2,7 +2,7 @@
 Agent module for medical analytics
 """
 
-from .agents import MedicalAnalyticsAgent
+from .agents import build_agent_graph
 from .models import (
     ClarificationOutput,
     ClarifyRequest,
@@ -14,7 +14,7 @@ from .prompts import CLARIFICATION_PROMPT, DB_PROMPT, EXECUTION_PROMPT, SUMMARIZ
 from .tools import execute_sql_tool, plot_chart_tool
 
 __all__ = [
-    "MedicalAnalyticsAgent",
+    "build_agent_graph",
     "ClarificationOutput",
     "ClarifyRequest",
     "ClarifyResponse",

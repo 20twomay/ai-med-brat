@@ -26,6 +26,9 @@ class ExecuteRequest(BaseModel):
     """Запрос на выполнение анализа"""
 
     query: str = Field(description="Запрос пользователя (может быть уточненный)")
+    thread_id: str | None = Field(
+        default=None, description="Идентификатор сессии (если не передан, будет сгенерирован)"
+    )
 
 
 class ExecuteResponse(BaseModel):
@@ -33,10 +36,12 @@ class ExecuteResponse(BaseModel):
 
     result: str = Field(description="Текстовый результат анализа")
     charts: list[str] = Field(default_factory=list, description="Пути к графикам")
+    tables: list[str] = Field(default_factory=list, description="Пути к таблицам")
     input_tokens: int = Field(default=0, description="Количество входных токенов")
     output_tokens: int = Field(default=0, description="Количество выходных токенов")
     latency_ms: float = Field(default=0.0, description="Время выполнения запроса в миллисекундах")
     cost: float = Field(default=0.0, description="Стоимость запроса в USD")
+    thread_id: str = Field(description="Идентификатор сессии")
 
 
 class ClarificationOutput(BaseModel):

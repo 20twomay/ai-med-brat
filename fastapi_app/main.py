@@ -1,11 +1,12 @@
 import logging
 import os
 
-from agent.agents import MedicalAnalyticsAgent
-from agent.models import ClarifyRequest, ClarifyResponse, ExecuteRequest, ExecuteResponse
+from agent.agents import build_agent_graph
+from agent.models import ExecuteRequest, ExecuteResponse
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from langchain_openai import ChatOpenAI
 from langsmith import Client, traceable
@@ -19,28 +20,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Создаем папку для графиков
-CHARTS_DIR = os.path.join(os.path.dirname(__file__), "charts")
-os.makedirs(CHARTS_DIR, exist_ok=True)
-
-# LLM setup - валидация обязательных переменных окружения
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL")
-MODEL_NAME = os.getenv("MODEL_NAME")
-
-if not OPENROUTER_API_KEY:
-    raise ValueError("OPENROUTER_API_KEY environment variable is required")
-if not API_BASE_URL:
-    raise ValueError("API_BASE_URL environment variable is required")
-if not MODEL_NAME:
-    raise ValueError("MODEL_NAME environment variable is required")
-
-llm = ChatOpenAI(model=MODEL_NAME, base_url=API_BASE_URL, api_key=OPENROUTER_API_KEY)
-
 ls = Client()
-
-# Инициализация агента
-agent = MedicalAnalyticsAgent(llm)
+compiled_graph, checkpointer = build_agent_graph()
 
 app = FastAPI(
     title="Medical Analytics Agent API v2",
@@ -56,42 +37,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Монтируем статические файлы для графиков
-app.mount("/charts", StaticFiles(directory=CHARTS_DIR), name="charts")
-
-
-# ============= Endpoints =============
-
-
-@app.post("/clarify", response_model=ClarifyResponse)
-async def clarify_query(request: ClarifyRequest):
-    """
-    Проверяет запрос пользователя и определяет, нужны ли уточнения.
-
-    Возвращает:
-    - need_feedback=False: запрос готов к выполнению, можно сразу отправлять в /execute
-    - need_feedback=True: нужны уточнения, показать пользователю варианты (suggestions)
-    """
-    try:
-        return agent.clarify_query(request.query)
-    except Exception as e:
-        logger.error(f"Error in clarify endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error processing clarification: {str(e)}")
-
 
 @app.post("/execute", response_model=ExecuteResponse)
 @traceable(name="execute_query", run_type="chain")
 async def execute_query(request: ExecuteRequest):
-    """
-    Выполняет анализ данных по запросу пользователя.
-
-    Принимает уже уточненный/валидированный запрос и выполняет его:
-    - Строит SQL запросы
-    - Визуализирует данные
-    - Возвращает результат с графиками
-    """
     try:
-        return agent.execute_query(request.query)
+        import time
+        import uuid
+
+        # Засекаем время начала
+        start_time = time.time()
+
+        thread_id = request.thread_id or str(uuid.uuid4())
+        config = {"configurable": {"thread_id": thread_id}}
+        state = {
+            "messages": [{"type": "human", "content": request.query}],
+            "react_iter": 0,
+            "react_max_iter": 5,
+            "charts": [],
+            "tables": [],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_cost": 0.0,
+            "start_time": start_time,
+        }
+        result = None
+        for chunk in compiled_graph.stream(state, config, stream_mode="values"):
+            result = chunk
+
+        # Собираем ответ
+        last_message = result["messages"][-1]
+
+        # Получаем ссылки напрямую из state (без парсинга)
+        charts = result.get("charts", [])
+        tables = result.get("tables", [])
+        input_tokens = result.get("input_tokens", 0)
+        output_tokens = result.get("output_tokens", 0)
+        total_cost = result.get("total_cost", 0.0)
+
+        # Вычисляем latency
+        latency_ms = (time.time() - start_time) * 1000
+
+        return ExecuteResponse(
+            result=last_message.content if hasattr(last_message, "content") else str(last_message),
+            charts=charts,
+            tables=tables,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            latency_ms=latency_ms,
+            cost=total_cost,
+            thread_id=thread_id,
+        )
     except Exception as e:
         logger.error(f"Error in execute endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error executing query: {str(e)}")
@@ -123,19 +119,45 @@ async def health_check():
 
     # Проверка подключения к S3
     try:
-        from agent.tools import get_s3_client
+        from agent.tools import MINIO_CLIENT, S3_BUCKET
 
-        s3_client = get_s3_client()
-        if s3_client:
-            s3_client.list_buckets()
-            health_status["s3"] = "connected"
-        else:
-            health_status["s3"] = "not_configured"
+        MINIO_CLIENT.list_buckets()
+        health_status["s3"] = "connected"
     except Exception as e:
         logger.error(f"S3 health check failed: {e}")
         health_status["s3"] = "disconnected"
 
     return health_status
+
+
+@app.get("/charts/{thread_id}/{filename}")
+async def get_chart(thread_id: str, filename: str):
+    """Получение файла (график, CSV) из MinIO по thread_id и имени файла"""
+    try:
+        from agent.tools import MINIO_CLIENT, S3_BUCKET
+
+        object_name = f"{thread_id}/{filename}"
+        logger.info(f"Fetching object from MinIO: {object_name}")
+
+        response = MINIO_CLIENT.get_object(S3_BUCKET, object_name)
+        content = response.read()
+        response.close()
+        response.release_conn()
+
+        # Определяем content_type по расширению файла
+        if filename.endswith(".json"):
+            media_type = "application/json"
+        elif filename.endswith(".csv"):
+            media_type = "text/csv"
+        elif filename.endswith(".png"):
+            media_type = "image/png"
+        else:
+            media_type = "application/octet-stream"
+
+        return Response(content=content, media_type=media_type)
+    except Exception as e:
+        logger.error(f"Error fetching file {thread_id}/{filename}: {e}")
+        raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
 
 
 if __name__ == "__main__":
