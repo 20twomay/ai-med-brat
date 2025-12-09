@@ -5,3 +5,4 @@ redis/
 venv/
 notebooks/
 fastapi_app/charts
+test_agent/
