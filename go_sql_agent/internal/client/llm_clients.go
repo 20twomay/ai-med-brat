@@ -1,4 +1,4 @@
-package internal
+package client
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func (e EmptyModel) Name() string {
 // Qwen Model
 // ===========================
 
-type QwenModelConfig struct {
+type QwenModelArgs struct {
 	Model   string
 	APIKey  string
 	BaseURL string
@@ -51,10 +51,10 @@ type QwenModelConfig struct {
 type QwenModel struct {
 	client openai.Client
 
-	config QwenModelConfig
+	config QwenModelArgs
 }
 
-func NewQwenOpenAIModel(cfg QwenModelConfig) *QwenModel {
+func NewQwenOpenAIModel(cfg QwenModelArgs) *QwenModel {
 	opts := []option.RequestOption{
 		option.WithAPIKey(cfg.APIKey),
 	}

@@ -12,52 +12,59 @@ import (
 	"google.golang.org/adk/tool"
 	"google.golang.org/genai"
 
-	"github.com/20twomay/ai-med-brat/go_sql_agent/internal"
-
-	// Импортируем драйверы БД
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/lib/pq"
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/tools"
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/client"
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/config"
 )
 
 var cfgPath string
 
 func init() {
 	flag.StringVar(&cfgPath, "cfg", ".env", "path to config file")
-
 	flag.Parse()
 }
 
-func main() {
-	const AppName = "go-pull-data-agent"
-	const UserId = "user-001"
+const (
+	AgentName = "medical-data-agent"
+	AgentDescription = "Агент для извлечения медицинских данных из базы данных и экспорта в CSV формат"
+	AppName = "go-pull-data-agent"
+	UserId = "local-user"
+	Prompt = `Проанализируй схему базы данных и экспортируй медицинские данные в три CSV файла:
+1. diagnoses.csv - данные о диагнозах
+2. patients.csv - данные о пациентах  
+3. receips.csv - данные о рецептах
 
+Начни с вызова GetDatabaseSchema.`
+)
+
+func main() {
 	ctx := context.Background()
 
-	cfg := internal.MustLoad(cfgPath)
+	cfg := config.MustLoad(cfgPath)
 
-	// Создаем LLM модель
 	fmt.Println("📡 Используем Qwen через OpenRouter")
-	llmModel := internal.NewQwenOpenAIModel(cfg.Qwen)
+	llmModel := client.NewQwenOpenAIModel(cfg.Qwen)
 
 	// Подключаемся к базе данных напрямую через функцию-помощник
 	fmt.Println("🔌 Подключаемся к базе данных...")
-	err := internal.ConnectDatabaseDirect(cfg.Database.Type, cfg.Database.Host, cfg.Database.Port,
-		cfg.Database.User, cfg.Database.Password, cfg.Database.Name)
+	err, close := tools.ConnectDatabaseDirect(cfg.Database)
 	if err != nil {
-		panic(fmt.Sprintf("Ошибка подключения к БД: %v", err))
+			panic(fmt.Sprintf("Ошибка подключения к БД: %v", err))
 	}
+	defer close()
+
 	fmt.Printf("✅ Подключено к базе данных %s типа %s\n\n", cfg.Database.Name, cfg.Database.Type)
 
 	// Создаем инструменты для работы с базой данных (без ConnectDatabase)
-	schemaTool, err := internal.NewGetDatabaseSchemaTool()
+	schemaTool, err := tools.NewGetDatabaseSchemaTool()
 	if err != nil {
 		panic(err)
 	}
-	sampleTool, err := internal.NewGetTableSampleTool()
+	sampleTool, err := tools.NewGetTableSampleTool()
 	if err != nil {
 		panic(err)
 	}
-	queryTool, err := internal.NewExecuteQueryTool()
+	queryTool, err := tools.NewExecuteQueryTool()
 	if err != nil {
 		panic(err)
 	}
@@ -68,12 +75,10 @@ func main() {
 		queryTool,
 	}
 
-	defer internal.CloseDBConnection()
-
-	systemPrompt := buildSystemPrompt(cfg.Database.Type)
+	systemPrompt := buildSystemPrompt(string(cfg.Database.Type))
 
 	agent, err := llmagent.New(llmagent.Config{
-		Name:        "medical-data-agent",
+		Name:        AgentName,
 		Model:       llmModel,
 		Description: "Агент для извлечения медицинских данных из базы данных и экспорта в CSV формат",
 		Instruction: systemPrompt,
@@ -84,13 +89,11 @@ func main() {
 	}
 
 	sessionService := session.InMemoryService()
-	config := runner.Config{
+	r, err := runner.New(runner.Config{
 		AppName:        AppName,
 		Agent:          agent,
 		SessionService: sessionService,
-	}
-
-	r, err := runner.New(config)
+	})
 	if err != nil {
 		panic(err)
 	}
@@ -107,14 +110,8 @@ func main() {
 	sessionID := createResp.Session.ID()
 
 	// Автоматический запрос на извлечение медицинских данных
-	prompt := `Проанализируй схему базы данных и экспортируй медицинские данные в три CSV файла:
-1. diagnoses.csv - данные о диагнозах
-2. patients.csv - данные о пациентах  
-3. receips.csv - данные о рецептах
-
-Начни с вызова GetDatabaseSchema.`
 	userMsg := &genai.Content{
-		Parts: []*genai.Part{{Text: prompt}},
+		Parts: []*genai.Part{{Text: Prompt}},
 		Role:  genai.RoleUser,
 	}
 

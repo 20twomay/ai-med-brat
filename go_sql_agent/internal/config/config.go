@@ -1,24 +1,18 @@
-package internal
+package config
 
 import (
 	"fmt"
 	"strings"
 
 	"github.com/spf13/viper"
+
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/tools"
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/client"
 )
 
 type Config struct {
-	Qwen     QwenModelConfig
-	Database DatabaseConfig
-}
-
-type DatabaseConfig struct {
-	Type     string // postgres, mysql
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Name     string
+	Qwen     client.QwenModelArgs
+	Database tools.ConnectDatabaseArgs
 }
 
 func MustLoad(envPath string) Config {
@@ -34,13 +28,13 @@ func MustLoad(envPath string) Config {
 	}
 
 	cfg := Config{
-		Qwen: QwenModelConfig{
+		Qwen: client.QwenModelArgs{
 			Model:   getEnvOrDefault("QWEN_MODEL", "qwen/qwen3-coder-30b-a3b-instruct"),
 			APIKey:  viper.GetString("QWEN_API_KEY"),
 			BaseURL: viper.GetString("QWEN_BASE_URL"),
 		},
-		Database: DatabaseConfig{
-			Type:     getEnvOrDefault("DB_TYPE", "postgres"),
+		Database: tools.ConnectDatabaseArgs{
+			Type:     tools.DBType(getEnvOrDefault("DB_TYPE", "postgres")),
 			Host:     getEnvOrDefault("DB_HOST", "localhost"),
 			Port:     getEnvOrDefault("DB_PORT", "5432"),
 			User:     viper.GetString("DB_USER"),
