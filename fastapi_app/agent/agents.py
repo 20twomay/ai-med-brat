@@ -69,8 +69,19 @@ class State(TypedDict):
 
 
 async def node_worker(state: State) -> State:
+    react_iter = state.get("react_iter", 0)
+    react_max_iter = state.get("react_max_iter", 10)
+
     sys_prompt = SystemMessage(
-        f"Ты помощник, который выполняет SQL запросы к базе данных медицинских записей.\n если ты считаешь что вопрос не по теме или он не полный можешь уточнить\n{DB_PROMPT}"
+        f"""Ты помощник, который выполняет SQL запросы к базе данных медицинских записей.
+
+ВАЖНЫЕ ПРАВИЛА:
+- Ты можешь вызывать ТОЛЬКО ОДИН инструмент за итерацию
+- Текущая итерация: {react_iter + 1}/{react_max_iter}
+- Когда ты получил достаточно данных для ответа, НЕ вызывай больше инструментов
+- Если ты уже выполнил SQL и/или построил график, отвечай пользователю текстом БЕЗ новых вызовов инструментов
+
+{DB_PROMPT}"""
     )
     response = await llm_with_tools.ainvoke([sys_prompt] + state["messages"])
 
@@ -95,24 +106,33 @@ async def node_worker(state: State) -> State:
 
 async def node_tools(state: State, config: RunnableConfig) -> State:
     last_message = state["messages"][-1]
+
+    # Обрабатываем только первый tool call, остальные игнорируем
+    if not last_message.tool_calls:
+        return {"messages": [], "react_iter": state["react_iter"] + 1}
+
     tool_call = last_message.tool_calls[0]
     tool_name = tool_call["name"]
     tool_args = tool_call["args"]
     tool_id = tool_call["id"]
 
+    # Если больше одного tool call, создаем ToolMessage для каждого с ошибкой
     if len(last_message.tool_calls) > 1:
-        tool_message = ToolMessage(
-            content="Only one tool call is allowed per iteration.", tool_call_id=tool_id
-        )
+        tool_messages = [
+            ToolMessage(
+                content="Only one tool call is allowed per iteration.", tool_call_id=tc["id"]
+            )
+            for tc in last_message.tool_calls
+        ]
         return {
-            "messages": [tool_message],
+            "messages": tool_messages,
             "react_iter": state["react_iter"] + 1,
         }
 
     # SQL
     if tool_name == "execute_sql_tool":
-        result = await execute_sql_tool.ainvoke(input=tool_args, config=config)
         try:
+            result = await execute_sql_tool.ainvoke(input=tool_args, config=config)
             tool_message = ToolMessage(
                 content=result,
                 tool_call_id=tool_id,
@@ -125,17 +145,22 @@ async def node_tools(state: State, config: RunnableConfig) -> State:
                 match = re.search(r"File saved to MinIO at '(.+?)'", result)
                 if match:
                     tables.append(match.group(1))
+
+            return {
+                "messages": [tool_message],
+                "react_iter": state["react_iter"] + 1,
+                "tables": tables,
+            }
         except Exception as e:
+            logger.error(f"SQL tool error: {e}", exc_info=True)
             tool_message = ToolMessage(
                 content=f"SQL Execution Error: {str(e)}",
                 tool_call_id=tool_id,
             )
-
-        return {
-            "messages": [tool_message],
-            "react_iter": state["react_iter"] + 1,
-            "tables": tables,
-        }
+            return {
+                "messages": [tool_message],
+                "react_iter": state["react_iter"] + 1,
+            }
     # Plotting
     elif tool_name == "plot_chart_tool":
         try:
@@ -152,22 +177,25 @@ async def node_tools(state: State, config: RunnableConfig) -> State:
                 match = re.search(r"Plotly figure JSON saved to MinIO:\s*(.+\.json)", result)
                 if match:
                     charts.append(match.group(1))
+
+            return {
+                "messages": [tool_message],
+                "react_iter": state["react_iter"] + 1,
+                "charts": charts,
+            }
         except Exception as e:
+            logger.error(f"Plotting tool error: {e}", exc_info=True)
             tool_message = ToolMessage(
                 content=f"Plotting Error: {str(e)}",
                 tool_call_id=tool_id,
             )
-
-        return {
-            "messages": [tool_message],
-            "react_iter": state["react_iter"] + 1,
-            "charts": charts,
-        }
+            return {
+                "messages": [tool_message],
+                "react_iter": state["react_iter"] + 1,
+            }
     # Unsupported tool
     else:
-        tool_message = ToolMessage(
-            content="Only one tool call is allowed per iteration.", tool_call_id=tool_id
-        )
+        tool_message = ToolMessage(content=f"Unsupported tool: {tool_name}", tool_call_id=tool_id)
         return {
             "messages": [tool_message],
             "react_iter": state["react_iter"] + 1,
@@ -175,6 +203,15 @@ async def node_tools(state: State, config: RunnableConfig) -> State:
 
 
 def conditional_tools(state: State) -> Literal["tools", "continue"]:
+    """Проверяет, нужно ли вызвать инструменты или перейти к итоговому отчету"""
+    # Проверка на превышение лимита итераций
+    react_iter = state.get("react_iter", 0)
+    react_max_iter = state.get("react_max_iter", 10)
+
+    if react_iter >= react_max_iter:
+        logger.warning(f"Reached max iterations: {react_iter}/{react_max_iter}")
+        return "continue"
+
     last_message = state["messages"][-1]
     if not last_message.tool_calls:
         return "continue"
@@ -185,7 +222,22 @@ async def node_final_report(state: State) -> State:
     sys_prompt = SystemMessage(
         "Создай краткий итоговый отчет по выполненной работе. Не искажай пути, полученные в результате выполнения инструментов."
     )
-    response = await llm.ainvoke([sys_prompt] + state["messages"])
+
+    # Очищаем историю от tool_calls и ToolMessage для совместимости с Mistral API
+    # Mistral требует: user → assistant → user → assistant (без tool роли)
+    cleaned_messages = []
+    for msg in state["messages"]:
+        # Пропускаем все ToolMessage (роль 'tool')
+        if isinstance(msg, ToolMessage):
+            continue
+        # Убираем tool_calls из AIMessage
+        elif isinstance(msg, AIMessage) and msg.tool_calls:
+            cleaned_msg = AIMessage(content=msg.content or "Выполняю запрос...")
+            cleaned_messages.append(cleaned_msg)
+        else:
+            cleaned_messages.append(msg)
+
+    response = await llm.ainvoke([sys_prompt] + cleaned_messages)
 
     # Подсчет токенов и cost из response_metadata
     input_tokens = state.get("input_tokens", 0)

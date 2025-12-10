@@ -139,7 +139,7 @@ async def execute_sql_tool(
         csv_buffer = io.BytesIO()
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
-        object_name = f"{thread_id}/query_results.csv"
+        object_name = f"{thread_id}/df_{uuid.uuid4()}.csv"
 
         await asyncio.to_thread(
             MINIO_CLIENT.put_object,
