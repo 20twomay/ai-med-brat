@@ -15,33 +15,6 @@ import (
 	"google.golang.org/genai"
 )
 
-// ===========================
-// Empty Model
-// ===========================
-
-type EmptyModel struct{}
-
-func NewEmptyModel() model.LLM {
-	return EmptyModel{}
-}
-
-func (e EmptyModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
-	// Возвращаем функцию, которая при первом же вызове возвращает false,
-	// сигнализируя об окончании последовательности.
-	return func(yield func(*model.LLMResponse, error) bool) {
-		// Ничего не делаем, просто выходим.
-		// Цикл for...range по этому итератору не выполнит ни одной итерации.
-	}
-}
-
-func (e EmptyModel) Name() string {
-	return "EmptyModel"
-}
-
-// ===========================
-// Qwen Model
-// ===========================
-
 type QwenModelArgs struct {
 	Model   string
 	APIKey  string

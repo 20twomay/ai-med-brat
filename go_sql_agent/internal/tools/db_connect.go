@@ -66,7 +66,9 @@ func ConnectDatabaseDirect(cfg ConnectDatabaseArgs) (error, func() error) {
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(5)
 
+	dbConnection = db
+
 	return nil, func() error {
-		return dbConnection.Close()
+		return db.Close()
 	}
 }

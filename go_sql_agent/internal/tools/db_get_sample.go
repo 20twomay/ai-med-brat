@@ -9,6 +9,8 @@ import (
 	_ "github.com/lib/pq"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
+
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/tokenizer"
 )
 
 
@@ -63,12 +65,50 @@ func GetTableSample(ctx tool.Context, args GetTableSampleArgs) (GetTableSampleRe
 			if i > 0 {
 				result.WriteString(", ")
 			}
-			result.WriteString(fmt.Sprintf("%s=%v", columns[i], val))
+
+			// Токенизируем значение перед отправкой в LLM
+			strVal := fmt.Sprintf("%v", val)
+			if val != nil && tokenizer.GetTokenizer().IsEnabled() {
+				// Определяем тип токена на основе имени колонки
+				tokenType := detectColumnTokenType(columns[i])
+				if tokenType != "" {
+					strVal = tokenizer.GetTokenizer().Tokenize(strVal, tokenType)
+				}
+			}
+
+			result.WriteString(fmt.Sprintf("%s=%v", columns[i], strVal))
 		}
 		result.WriteString("\n")
 	}
 
 	return GetTableSampleResult{Sample: result.String()}, nil
+}
+
+// detectColumnTokenType определяет тип токена для колонки
+func detectColumnTokenType(columnName string) tokenizer.TokenType {
+	colLower := strings.ToLower(columnName)
+
+	switch {
+	case strings.Contains(colLower, "name") || strings.Contains(colLower, "fio"):
+		return tokenizer.TokenTypeName
+	case strings.Contains(colLower, "date") || strings.Contains(colLower, "birth"):
+		return tokenizer.TokenTypeDate
+	case strings.Contains(colLower, "phone") || strings.Contains(colLower, "tel"):
+		return tokenizer.TokenTypePhone
+	case strings.Contains(colLower, "email"):
+		return tokenizer.TokenTypeEmail
+	case strings.Contains(colLower, "address") || strings.Contains(colLower, "district") || strings.Contains(colLower, "region"):
+		return tokenizer.TokenTypeAddress
+	case strings.Contains(colLower, "id"):
+		return tokenizer.TokenTypeID
+	case strings.Contains(colLower, "diagnosis") || strings.Contains(colLower, "disease"):
+		return tokenizer.TokenTypeDiagnosis
+	case strings.Contains(colLower, "drug") || strings.Contains(colLower, "medication"):
+		return tokenizer.TokenTypeDrug
+	default:
+		return ""
+	}
+
 }
 
 func NewGetTableSampleTool() (tool.Tool, error) {

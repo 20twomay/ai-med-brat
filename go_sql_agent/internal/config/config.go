@@ -6,13 +6,25 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/tools"
 	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/client"
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/logger"
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/tools"
 )
 
 type Config struct {
-	Qwen     client.QwenModelArgs
-	Database tools.ConnectDatabaseArgs
+	Qwen      client.QwenModelArgs
+	Database  tools.ConnectDatabaseArgs
+	Logger    logger.Config
+	Tokenizer TokenizerConfig
+}
+
+func (c *Config) LoggerConfig() logger.Config {
+	return c.Logger
+}
+
+type TokenizerConfig struct {
+	Enabled         bool
+	SensitiveFields []string
 }
 
 func MustLoad(envPath string) Config {
@@ -40,6 +52,22 @@ func MustLoad(envPath string) Config {
 			User:     viper.GetString("DB_USER"),
 			Password: viper.GetString("DB_PASSWORD"),
 			Name:     viper.GetString("DB_NAME"),
+		},
+		Logger: logger.Config{
+			Level:    logger.ParseLogLevel(getEnvOrDefault("LOG_LEVEL", "INFO")),
+			Output:   nil, // stdout по умолчанию
+			ShowTime: getBoolEnvOrDefault("LOG_SHOW_TIME", true),
+			ShowCaller: false,
+		},
+		Tokenizer: TokenizerConfig{
+			Enabled: getBoolEnvOrDefault("TOKENIZER_ENABLED", true),
+			SensitiveFields: getStringSliceEnvOrDefault("TOKENIZER_SENSITIVE_FIELDS", []string{
+				"name", "full_name", "first_name", "last_name", "middle_name",
+				"phone", "email", "address", "birth_date", "birthdate",
+				"salary", "income", "account", "card_number",
+				"diagnosis", "disease", "drug", "medication", "prescription",
+				"district", "region",
+			}),
 		},
 	}
 
@@ -77,6 +105,20 @@ func (c *Config) Validate() error {
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := viper.GetString(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+func getBoolEnvOrDefault(key string, defaultValue bool) bool {
+	if viper.IsSet(key) {
+		return viper.GetBool(key)
+	}
+	return defaultValue
+}
+
+func getStringSliceEnvOrDefault(key string, defaultValue []string) []string {
+	if viper.IsSet(key) {
+		return viper.GetStringSlice(key)
 	}
 	return defaultValue
 }

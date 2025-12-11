@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/20twomay/ai-med-brat/go_sql_agent/internal/tokenizer"
 )
 
 // ExportToCSV экспортирует результаты SQL запроса в CSV файл
+// Данные детокенизируются перед записью в файл, чтобы в CSV были реальные значения
 func ExportToCSV(rows *sql.Rows, filename string) (int, error) {
+	tok := tokenizer.GetTokenizer()
+
 	// Создаем файл
 	file, err := os.Create(filename)
 	if err != nil {
@@ -47,10 +52,18 @@ func ExportToCSV(rows *sql.Rows, filename string) (int, error) {
 			return rowCount, fmt.Errorf("ошибка чтения строки: %w", err)
 		}
 
-		// Конвертируем значения в строки
+		// Конвертируем значения в строки и детокенизируем
 		stringValues := make([]string, len(values))
 		for i, val := range values {
-			stringValues[i] = valueToString(val)
+			strVal := valueToString(val)
+
+			// Детокенизируем значение перед записью в CSV
+			// В CSV должны быть реальные данные, а не токены
+			if tok.IsEnabled() && strVal != "" {
+				strVal = tok.Detokenize(strVal)
+			}
+
+			stringValues[i] = strVal
 		}
 
 		if err := writer.Write(stringValues); err != nil {
