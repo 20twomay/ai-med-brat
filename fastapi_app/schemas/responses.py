@@ -15,4 +15,4 @@ class ExecuteResponse(BaseModel):
     output_tokens: int = Field(default=0, description="Количество выходных токенов")
     latency_ms: float = Field(default=0.0, description="Время выполнения запроса в миллисекундах")
     cost: float = Field(default=0.0, description="Стоимость запроса в USD")
-    thread_id: str = Field(description="Идентификатор сессии")
+    chat_id: int = Field(description="ID чата")

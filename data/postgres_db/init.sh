@@ -1,20 +1,35 @@
 #!/bin/bash
+
+# ========================================
+# PostgreSQL Initialization Script
+# ========================================
+# Этот скрипт запускается при первом запуске контейнера PostgreSQL
+# Применяет все миграции из папки migrations/
+# ========================================
+
 set -e
 
-echo "Initializing database..."
+echo "========================================="
+echo "Starting PostgreSQL initialization..."
+echo "========================================="
 
-# Создание схемы
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/schema.sql
+# Ждем, пока PostgreSQL полностью запустится
+sleep 2
 
-echo "Schema created successfully"
+# Запускаем скрипт миграций
+if [ -f /docker-entrypoint-initdb.d/migrate.sh ]; then
+    echo "Applying migrations..."
+    bash /docker-entrypoint-initdb.d/migrate.sh up
 
-# Загрузка данных
-if [ -f /docker-entrypoint-initdb.d/load_data.sql ]; then
-    echo "Loading data..."
-    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -f /docker-entrypoint-initdb.d/load_data.sql
-    echo "Data loaded successfully"
+    echo ""
+    echo "Migration status:"
+    bash /docker-entrypoint-initdb.d/migrate.sh status
 else
-    echo "No data file found, skipping data load"
+    echo "ERROR: migrate.sh not found!"
+    exit 1
 fi
 
-echo "Database initialization complete"
+echo ""
+echo "========================================="
+echo "PostgreSQL initialization completed!"
+echo "========================================="

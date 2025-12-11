@@ -39,7 +39,7 @@ async def execute_sql_tool(query: str, config: RunnableConfig = None) -> str:
     Raises:
         DatabaseError: При ошибке выполнения SQL запроса
     """
-    thread_id = config["configurable"]["thread_id"]
+    chat_id = config["configurable"]["thread_id"]  # chat_id передается как thread_id
     settings = get_settings()
 
     try:
@@ -59,7 +59,7 @@ async def execute_sql_tool(query: str, config: RunnableConfig = None) -> str:
         csv_buffer = io.BytesIO()
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
-        object_name = f"{thread_id}/df_{uuid.uuid4()}.csv"
+        object_name = f"{chat_id}/df_{uuid.uuid4()}.csv"
 
         client = get_storage_client()
         await asyncio.to_thread(

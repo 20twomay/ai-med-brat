@@ -9,8 +9,8 @@
 -- Загрузка медикаментов
 \COPY medication FROM '/docker-entrypoint-initdb.d/data/medication.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');
 
--- Загрузка рецептов
-\COPY recipes FROM '/docker-entrypoint-initdb.d/data/recipes.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');
+-- Загрузка рецептов (id генерируется автоматически)
+\COPY recipes("дата_рецепта", "код_диагноза", "код_препарата", "id_пациента") FROM '/docker-entrypoint-initdb.d/data/recipes.csv' WITH (FORMAT csv, HEADER true, DELIMITER ',');
 
 -- Проверка загруженных данных
 SELECT 'patients' as table_name, COUNT(*) as row_count FROM patients

@@ -101,6 +101,10 @@ async def node_tools(state: AgentState, config: RunnableConfig) -> AgentState:
     tool_args = tool_call["args"]
     tool_id = tool_call["id"]
 
+    # Санитизируем tool_id: заменяем подчеркивания на дефисы
+    # Провайдер требует только a-z, A-Z, 0-9 и дефис
+    tool_id = tool_id.replace("_", "-")
+
     # Выполняем SQL tool
     if tool_name == "execute_sql_tool":
         try:
