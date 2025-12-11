@@ -5,13 +5,12 @@
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from agent import build_agent_graph
 from config import get_settings
 from core import (
     AppException,
-    DEFAULT_MAX_REACT_ITERATIONS,
     ResourceNotFoundError,
     SUPPORTED_MEDIA_TYPES,
     get_storage_client,
@@ -21,7 +20,7 @@ from core.auth import get_current_user, get_db_session
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from langsmith import traceable
-from models import Chat, User
+from models import Chat, Message, User
 from schemas import ExecuteRequest, ExecuteResponse
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -67,28 +66,26 @@ async def execute_query(
             chat = Chat(
                 user_id=current_user.id,
                 title="Новый чат",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
             )
             db.add(chat)
             db.commit()
             db.refresh(chat)
             logger.info(f"[EXECUTE] Created new chat: id={chat.id}")
 
-        # Используем chat_id для конфигурации
+        # Конфигурация для LangGraph с thread_id = chat.id
         config = {"configurable": {"thread_id": str(chat.id)}}
 
-        # Начальное состояние
+        # Начальное состояние - только пользовательский запрос и настройки
         state = {
             "messages": [{"type": "human", "content": request.query}],
-            "react_iter": 0,
-            "react_max_iter": DEFAULT_MAX_REACT_ITERATIONS,
-            "charts": [],
-            "tables": [],
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "total_cost": 0.0,
+            "enable_web_search": request.enable_web_search,
         }
+
+        # Передаем max_iterations через config если указан
+        if request.max_iterations:
+            config["configurable"]["max_iterations"] = request.max_iterations
 
         # Выполняем граф
         result = None
@@ -100,7 +97,7 @@ async def execute_query(
             logger.error(f"LLM provider error: {llm_error}", exc_info=True)
 
             # Обновляем время последнего сообщения в чате даже при ошибке
-            chat.updated_at = datetime.utcnow()
+            chat.updated_at = datetime.now(timezone.utc)
             db.commit()
 
             # Возвращаем понятное сообщение об ошибке
@@ -132,12 +129,53 @@ async def execute_query(
         total_cost = result.get("total_cost", 0.0)
         latency_ms = (time.time() - start_time) * 1000
 
-        # Обновляем время последнего сообщения в чате
-        chat.updated_at = datetime.utcnow()
-        db.commit()
+        # Сохраняем сообщения в базу данных
+        try:
+            # Сохраняем сообщение пользователя
+            user_message = Message(
+                chat_id=chat.id,
+                role="user",
+                content=request.query,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(user_message)
+
+            # Сохраняем ответ ассистента
+            assistant_content = (
+                last_message.content
+                if hasattr(last_message, "content")
+                else str(last_message)
+            )
+            
+            # Формируем артефакты
+            artifacts = {}
+            if charts:
+                artifacts["charts"] = charts
+            if tables:
+                artifacts["tables"] = tables
+            
+            assistant_message = Message(
+                chat_id=chat.id,
+                role="assistant",
+                content=assistant_content,
+                artifacts=artifacts if artifacts else None,
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(assistant_message)
+
+            # Обновляем время последнего сообщения и количество токенов в чате
+            chat.updated_at = datetime.now(timezone.utc)
+            chat.total_tokens += input_tokens + output_tokens
+            db.commit()
+
+            logger.info(f"[EXECUTE] Saved messages for chat_id={chat.id}")
+        except Exception as db_error:
+            logger.error(f"Failed to save messages: {db_error}", exc_info=True)
+            # Продолжаем выполнение, даже если не удалось сохранить сообщения
+            db.rollback()
 
         return ExecuteResponse(
-            result=last_message.content if hasattr(last_message, "content") else str(last_message),
+            result=assistant_content,
             charts=charts,
             tables=tables,
             input_tokens=input_tokens,

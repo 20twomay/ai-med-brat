@@ -19,8 +19,10 @@ from .exceptions import (
     AppException,
     AuthenticationError,
     DatabaseError,
+    ForbiddenError,
     InvalidCredentialsError,
     LLMError,
+    RateLimitError,
     ResourceAlreadyExistsError,
     ResourceNotFoundError,
     StorageError,
@@ -29,7 +31,9 @@ from .exceptions import (
     ValidationError,
 )
 from .error_handlers import register_error_handlers
+from .logging_config import get_logger, setup_logging
 from .storage import get_storage_client
+from .storage_client import StorageClient, get_storage_client_wrapper
 
 __all__ = [
     # Database
@@ -37,8 +41,13 @@ __all__ = [
     "get_async_engine",
     # Storage
     "get_storage_client",
+    "StorageClient",
+    "get_storage_client_wrapper",
     # Error Handlers
     "register_error_handlers",
+    # Logging
+    "setup_logging",
+    "get_logger",
     # Exceptions
     "AppException",
     "DatabaseError",
@@ -47,11 +56,13 @@ __all__ = [
     "LLMError",
     "AuthenticationError",
     "UnauthorizedError",
+    "ForbiddenError",
     "InvalidCredentialsError",
     "TokenExpiredError",
     "ResourceNotFoundError",
     "ResourceAlreadyExistsError",
     "ValidationError",
+    "RateLimitError",
     # Auth
     "create_user",
     "authenticate_user",

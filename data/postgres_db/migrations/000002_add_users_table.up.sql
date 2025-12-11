@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     email VARCHAR(255) UNIQUE NOT NULL,
     hashed_password VARCHAR(255) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
@@ -25,6 +26,7 @@ COMMENT ON COLUMN users.id IS 'Уникальный идентификатор �
 COMMENT ON COLUMN users.email IS 'Email пользователя (логин)';
 COMMENT ON COLUMN users.hashed_password IS 'Хешированный пароль (bcrypt)';
 COMMENT ON COLUMN users.created_at IS 'Дата и время регистрации';
+COMMENT ON COLUMN users.updated_at IS 'Дата и время последнего обновления';
 COMMENT ON COLUMN users.is_active IS 'Флаг активности пользователя';
 
 COMMIT;

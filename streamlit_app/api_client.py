@@ -228,3 +228,27 @@ class APIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Delete chat failed: {e}")
             return False
+
+    def get_chat_messages(self, chat_id: int, skip: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
+        """
+        Получение истории сообщений чата
+        
+        Args:
+            chat_id: ID чата
+            skip: Количество сообщений для пропуска
+            limit: Максимальное количество сообщений
+            
+        Returns:
+            Список сообщений или None в случае ошибки
+        """
+        try:
+            response = requests.get(
+                f"{self.base_url}/chats/{chat_id}/messages",
+                params={"skip": skip, "limit": limit},
+                headers=self._get_headers(),
+                timeout=self.timeout,
+            )
+            return self._handle_response(response)
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Get chat messages failed: {e}")
+            return None

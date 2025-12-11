@@ -3,6 +3,6 @@
 """
 
 from .user import User, Base
-from .chat import Chat
+from .chat import Chat, Message
 
-__all__ = ["User", "Chat", "Base"]
+__all__ = ["User", "Chat", "Message", "Base"]

@@ -170,13 +170,19 @@ def register_error_handlers(app: FastAPI) -> None:
         request: Request, exc: AppException
     ) -> JSONResponse:
         """Обработка общих ошибок приложения"""
-        logger.error(f"Application error: {exc.message}", extra=exc.details, exc_info=True)
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "error": "application_error",
-                "message": "An unexpected error occurred",
+        logger.error(
+            f"Application error: {exc.message}",
+            extra={
+                "error_code": exc.error_code,
+                "details": exc.details,
+                "path": request.url.path,
+                "method": request.method,
             },
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.to_dict(),
         )
 
     @app.exception_handler(Exception)

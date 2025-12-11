@@ -1,4 +1,13 @@
+# Ignore invalid Windows device filename accidentally present in repo
+nul
+
+# Common ignores
 __pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+/.vscode/__pycache__/
 .env
 .exe1
 redis/

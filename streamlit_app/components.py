@@ -57,6 +57,8 @@ def render_chat_list(api_client, current_chat_id=None):
         if result:
             st.session_state.chat_id = result.get("id")
             st.session_state.messages = []
+            st.session_state.total_tokens = result.get("total_tokens", 0)
+            st.session_state.messages_loaded = True  # Новый чат, история пустая
             st.rerun()
         else:
             st.error("Не удалось создать чат")
@@ -90,8 +92,11 @@ def render_chat_list(api_client, current_chat_id=None):
                         use_container_width=True,
                         type="primary" if is_active else "secondary"
                     ):
+                        # При смене чата очищаем состояние и загружаем историю
                         st.session_state.chat_id = chat_id
-                        st.session_state.messages = []  # Очистим, будем загружать из истории
+                        st.session_state.messages = []
+                        st.session_state.total_tokens = chat.get("total_tokens", 0)
+                        st.session_state.messages_loaded = False
                         st.rerun()
                 
                 with col2:

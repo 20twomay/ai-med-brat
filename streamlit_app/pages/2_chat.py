@@ -19,7 +19,7 @@ from components import (
     render_context_indicator,
     render_logout_button
 )
-from utils import require_authentication, init_session_state, get_api_client
+from utils import require_authentication, init_session_state, get_api_client, check_token_from_cookies
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='[STREAMLIT] %(asctime)s - %(message)s')
@@ -34,11 +34,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Проверка аутентификации
-require_authentication()
-
 # Инициализация сессии
 init_session_state()
+
+# Проверка токена из cookies
+check_token_from_cookies()
+
+# Проверка аутентификации
+require_authentication()
 
 # Получение API клиента
 api_client = get_api_client()
@@ -120,6 +123,34 @@ st.markdown("")
 # Индикатор контекста над чатом
 total_tokens = st.session_state.get("total_tokens", 0)
 render_context_indicator(total_tokens)
+
+# Загрузка истории сообщений при открытии чата
+if st.session_state.get("chat_id") and not st.session_state.get("messages_loaded", False):
+    logger.info(f"Loading message history for chat_id={st.session_state.chat_id}")
+    with st.spinner("Загрузка истории чата..."):
+        messages_data = api_client.get_chat_messages(st.session_state.chat_id)
+        if messages_data and "messages" in messages_data:
+            # Преобразуем сообщения из API в формат для отображения
+            st.session_state.messages = []
+            for msg in messages_data["messages"]:
+                message_dict = {
+                    "role": msg["role"],
+                    "content": msg["content"]
+                }
+                # Добавляем артефакты если они есть
+                if msg.get("artifacts"):
+                    artifacts = []
+                    if "charts" in msg["artifacts"]:
+                        for chart_path in msg["artifacts"]["charts"]:
+                            artifacts.append({"type": "chart", "url": f"{api_client.base_url}/charts/{chart_path}"})
+                    if "tables" in msg["artifacts"]:
+                        for table_path in msg["artifacts"]["tables"]:
+                            artifacts.append({"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"})
+                    if artifacts:
+                        message_dict["artifacts"] = artifacts
+                st.session_state.messages.append(message_dict)
+            st.session_state.messages_loaded = True
+            logger.info(f"Loaded {len(st.session_state.messages)} messages from history")
 
 # Отображение истории сообщений
 if "messages" not in st.session_state:
@@ -248,10 +279,10 @@ if st.session_state.messages and st.session_state.messages[-1].get("role") == "u
             
             if response:
                 logger.info(f"Processing response: {list(response.keys())}")
-                # Обновляем количество токенов
+                # Обновляем количество токенов (добавляем к текущему значению)
                 input_tokens = response.get("input_tokens", 0)
                 output_tokens = response.get("output_tokens", 0)
-                st.session_state.total_tokens = input_tokens + output_tokens
+                st.session_state.total_tokens += input_tokens + output_tokens
 
                 # Добавляем ответ ассистента (поле "result" из ExecuteResponse)
                 result_content = response.get("result", "Извините, не удалось получить ответ.")
@@ -295,4 +326,5 @@ if st.session_state.messages:
             st.session_state.messages = []
             st.session_state.chat_id = None
             st.session_state.total_tokens = 0
+            st.session_state.messages_loaded = False
             st.rerun()

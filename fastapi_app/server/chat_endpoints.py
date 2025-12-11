@@ -3,13 +3,21 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core.auth import get_current_user, get_db_session
 from core.exceptions import ResourceNotFoundError
 from fastapi import APIRouter, Depends, HTTPException, status
-from models import Chat, User
-from schemas.chat import ChatCreate, ChatListResponse, ChatResponse, ChatUpdate
+from models import Chat, Message, User
+from schemas.chat import (
+    ChatCreate,
+    ChatListResponse,
+    ChatResponse,
+    ChatUpdate,
+    MessageCreate,
+    MessageListResponse,
+    MessageResponse,
+)
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
@@ -40,8 +48,8 @@ async def create_chat(
     chat = Chat(
         user_id=current_user.id,
         title=chat_data.title or "Новый чат",
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
     db.add(chat)
     db.commit()
@@ -161,7 +169,7 @@ async def update_chat(
     if chat_data.is_active is not None:
         chat.is_active = chat_data.is_active
 
-    chat.updated_at = datetime.utcnow()
+    chat.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(chat)
 
@@ -195,7 +203,123 @@ async def delete_chat(
 
     # Мягкое удаление
     chat.is_active = False
-    chat.updated_at = datetime.utcnow()
+    chat.updated_at = datetime.now(timezone.utc)
     db.commit()
 
     logger.info(f"[CHAT] Chat deleted: id={chat.id}")
+
+
+# ===== MESSAGE ENDPOINTS =====
+
+
+@router.get("/{chat_id}/messages", response_model=MessageListResponse)
+async def get_chat_messages(
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+    skip: int = 0,
+    limit: int = 100,
+):
+    """
+    Получить историю сообщений чата.
+
+    Args:
+        chat_id: ID чата
+        current_user: Текущий пользователь
+        db: Сессия базы данных
+        skip: Количество сообщений для пропуска
+        limit: Максимальное количество сообщений
+
+    Returns:
+        Список сообщений чата
+    """
+    logger.info(
+        f"[CHAT] Getting messages for chat_id={chat_id}, user_id={current_user.id}"
+    )
+
+    # Проверяем, что чат принадлежит пользователю
+    chat = db.execute(
+        select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id)
+    ).scalar_one_or_none()
+
+    if not chat:
+        logger.error(f"[CHAT] Chat not found: id={chat_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Получаем сообщения
+    query = (
+        select(Message)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.created_at)
+        .offset(skip)
+        .limit(limit)
+    )
+    messages = db.execute(query).scalars().all()
+
+    # Считаем общее количество сообщений
+    total_query = select(Message).where(Message.chat_id == chat_id)
+    total = len(db.execute(total_query).scalars().all())
+
+    logger.info(f"[CHAT] Found {len(messages)} messages (total: {total})")
+    return MessageListResponse(
+        messages=[MessageResponse.model_validate(msg) for msg in messages],
+        total=total,
+    )
+
+
+@router.post("/{chat_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+async def create_message(
+    chat_id: int,
+    message_data: MessageCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+):
+    """
+    Добавить новое сообщение в чат.
+
+    Args:
+        chat_id: ID чата
+        message_data: Данные сообщения
+        current_user: Текущий пользователь
+        db: Сессия базы данных
+
+    Returns:
+        Созданное сообщение
+    """
+    logger.info(
+        f"[CHAT] Creating message for chat_id={chat_id}, user_id={current_user.id}, role={message_data.role}"
+    )
+
+    # Проверяем, что чат принадлежит пользователю
+    chat = db.execute(
+        select(Chat).where(Chat.id == chat_id, Chat.user_id == current_user.id)
+    ).scalar_one_or_none()
+
+    if not chat:
+        logger.error(f"[CHAT] Chat not found: id={chat_id}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat not found",
+        )
+
+    # Создаем сообщение
+    message = Message(
+        chat_id=chat_id,
+        role=message_data.role,
+        content=message_data.content,
+        artifacts=message_data.artifacts,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(message)
+
+    # Обновляем время последнего обновления чата
+    chat.updated_at = datetime.now(timezone.utc)
+
+    db.commit()
+    db.refresh(message)
+
+    logger.info(f"[CHAT] Message created: id={message.id}")
+    return MessageResponse.model_validate(message)

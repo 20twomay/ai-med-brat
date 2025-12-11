@@ -3,14 +3,15 @@
 """
 
 import logging
-from datetime import datetime, timedelta
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
 from config import get_settings
 from core.constants import MAX_PASSWORD_LENGTH_BYTES
 from core.database import get_sync_engine
-from core.exceptions import InvalidCredentialsError, ResourceAlreadyExistsError, UnauthorizedError
+from core.exceptions import InvalidCredentialsError, ResourceAlreadyExistsError, TokenExpiredError, UnauthorizedError
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from models import User
@@ -76,27 +77,58 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(user_id: int, email: str) -> str:
-    """Создает JWT токен"""
+    """
+    Создает JWT токен с дополнительными claims для безопасности.
+
+    Args:
+        user_id: ID пользователя
+        email: Email пользователя
+
+    Returns:
+        JWT токен
+
+    Claims:
+        - sub: ID пользователя (subject)
+        - email: Email пользователя
+        - exp: Время истечения токена
+        - iat: Время создания токена (issued at)
+        - jti: Уникальный ID токена для возможности отзыва
+    """
     settings = get_settings()
-    expire = datetime.utcnow() + timedelta(days=settings.auth_access_token_expire_days)
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(days=settings.auth_access_token_expire_days)
+
     to_encode = {
         "sub": str(user_id),
         "email": email,
-        "exp": expire
+        "exp": expire,
+        "iat": now,
+        "jti": secrets.token_urlsafe(16),  # Уникальный ID токена
     }
     encoded_jwt = jwt.encode(to_encode, settings.auth_secret_key, algorithm=settings.auth_algorithm)
     return encoded_jwt
 
 
 def decode_access_token(token: str) -> Optional[dict]:
-    """Декодирует JWT токен"""
+    """
+    Декодирует JWT токен с обработкой различных типов ошибок.
+
+    Args:
+        token: JWT токен для декодирования
+
+    Returns:
+        Payload токена или None при ошибке
+
+    Raises:
+        TokenExpiredError: Если токен истёк (для явной обработки)
+    """
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.auth_secret_key, algorithms=[settings.auth_algorithm])
         return payload
     except jwt.ExpiredSignatureError:
         logger.warning("Token expired")
-        return None
+        raise TokenExpiredError("Authentication token has expired")
     except jwt.JWTError as e:
         logger.warning(f"JWT decode error: {e}")
         return None
@@ -130,7 +162,7 @@ def create_user(db: Session, email: str, password: str) -> User:
     user = User(
         email=email,
         hashed_password=hashed_password,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
     db.add(user)
     db.commit()

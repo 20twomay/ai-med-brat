@@ -3,7 +3,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from models import User
@@ -86,7 +86,7 @@ class UserRepository:
         user = User(
             email=email,
             hashed_password=hashed_password,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
             is_active=True,
         )
         self.db.add(user)
