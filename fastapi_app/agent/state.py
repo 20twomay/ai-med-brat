@@ -19,3 +19,4 @@ class AgentState(TypedDict):
     input_tokens: int  # Количество входных токенов
     output_tokens: int  # Количество выходных токенов
     total_cost: float  # Общая стоимость запроса в USD
+    enable_web_search: bool  # Флаг для включения веб-поиска
