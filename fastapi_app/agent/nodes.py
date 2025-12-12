@@ -61,7 +61,6 @@ async def executor_node(state: AgentState) -> AgentState:
     sys_prompt = SystemMessage(
         worker_sys_prompt.format(
             database_prompt=database_prompt,
-            # current_datetime=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             react_iter=react_iter + 1,
             react_max_iter=react_max_iter,
         )
@@ -179,32 +178,3 @@ def route_after_executor(state: AgentState) -> Literal["tools", "validator"]:
     if not last_message.tool_calls:
         return "validator"
     return "tools"
-
-
-async def final_report_node(state: AgentState) -> AgentState:
-    # q = state["query"]
-    # sys_message = SystemMessage(
-    #     content=(
-    #         "Создай итоговый отчёт по выполнению задачи агента.",
-    #         f"Предоставь краткий и информативный ответ на запрос пользователя: {q}.",
-    #     )
-    # )
-
-    # llm = _get_llm()
-    # response = await llm.ainvoke([sys_message] + messages)
-
-    # Подсчёт токенов и стоимости
-    """input_tokens = state.get("input_tokens", 0)
-    output_tokens = state.get("output_tokens", 0)
-    total_cost = state.get("total_cost", 0.0)
-
-    if hasattr(response, "response_metadata") and response.response_metadata:
-        usage = response.response_metadata.get("token_usage", {})
-        input_tokens += usage.get("prompt_tokens", 0)
-        output_tokens += usage.get("completion_tokens", 0)
-        total_cost += usage.get("cost", 0.0)"""
-
-    return {
-        "answer": state["messages"][-1].content,
-        "is_solved": True,
-    }

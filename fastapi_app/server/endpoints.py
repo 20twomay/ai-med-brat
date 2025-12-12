@@ -174,10 +174,14 @@ async def execute_query(
             # Продолжаем выполнение, даже если не удалось сохранить сообщения
             db.rollback()
 
+        # Добавляем chat_id к путям артефактов для корректной загрузки
+        charts_with_chat_id = [f"{chat.id}/{chart}" for chart in charts]
+        tables_with_chat_id = [f"{chat.id}/{table}" for table in tables]
+
         return ExecuteResponse(
             result=assistant_content,
-            charts=charts,
-            tables=tables,
+            charts=charts_with_chat_id,
+            tables=tables_with_chat_id,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             latency_ms=latency_ms,

@@ -10,7 +10,6 @@ from langgraph.graph import END, START, StateGraph
 
 from .nodes import (
     executor_node,
-    final_report_node,
     route_after_executor,
     tools_node,
 )
@@ -24,8 +23,6 @@ def node_init_state(state: AgentState, config: RunnableConfig) -> AgentState:
     Инициализирует начальное состояние агента с дефолтными значениями.
     Этот узел отвечает за настройку параметров, которые не должны управляться сервером.
     """
-    # Получаем max_iterations из config если передан
-    # configurable = config.get("configurable", {})
     max_iterations = 25
 
     return {
@@ -53,7 +50,6 @@ def build_agent_graph() -> tuple[StateGraph[AgentState], InMemorySaver]:
     builder.add_node("init_state", node_init_state)
     builder.add_node("executor", executor_node)
     builder.add_node("tools", tools_node)
-    # builder.add_node("final_report", final_report_node)
 
     # Добавляем рёбра
     builder.add_edge(START, "init_state")  # START всегда идет в init_state для инициализации
@@ -67,7 +63,6 @@ def build_agent_graph() -> tuple[StateGraph[AgentState], InMemorySaver]:
         },
     )
     builder.add_edge("tools", "executor")
-    # builder.add_edge("final_report", END)
 
     compiled_graph = builder.compile(checkpointer=checkpointer)
 

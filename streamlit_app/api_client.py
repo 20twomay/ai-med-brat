@@ -104,11 +104,11 @@ class APIClient:
     def execute_query(self, query: str, chat_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Выполнение анализа данных
-        
+
         Args:
             query: Запрос пользователя
             chat_id: ID чата (опционально)
-            
+
         Returns:
             Результат анализа или None в случае ошибки
         """
@@ -127,6 +127,45 @@ class APIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Execute query failed: {e}")
             return None
+
+    def execute_query_with_retry(self, query: str, chat_id: Optional[int] = None, max_retries: int = 3) -> Optional[Dict[str, Any]]:
+        """
+        Выполнить запрос к API с механизмом повторных попыток при пустом ответе
+
+        Args:
+            query: Запрос пользователя
+            chat_id: ID чата (опционально)
+            max_retries: Максимальное количество попыток (по умолчанию 3)
+
+        Returns:
+            Ответ от API или None в случае неудачи после всех попыток
+        """
+        for attempt in range(max_retries):
+            logger.info(f"[RETRY] Attempt {attempt + 1}/{max_retries} for query execution")
+
+            # Выполняем запрос
+            response = self.execute_query(query=query, chat_id=chat_id)
+
+            # Проверяем что ответ существует и не пустой
+            if response:
+                result_content = response.get("result", "")
+
+                # Проверяем что result не пустой
+                if result_content and result_content.strip():
+                    logger.info(f"[RETRY] Successful response on attempt {attempt + 1}")
+                    return response
+                else:
+                    logger.warning(f"[RETRY] Empty result content on attempt {attempt + 1}, response: {response}")
+            else:
+                logger.warning(f"[RETRY] No response on attempt {attempt + 1}")
+
+            # Если это не последняя попытка, продолжаем
+            if attempt < max_retries - 1:
+                logger.info(f"[RETRY] Retrying... ({attempt + 2}/{max_retries})")
+
+        # Все попытки исчерпаны
+        logger.error(f"[RETRY] All {max_retries} attempts failed")
+        return None
 
     def get_health(self) -> Optional[Dict[str, Any]]:
         """

@@ -284,10 +284,12 @@ if st.session_state.messages and st.session_state.messages[-1].get("role") == "u
                 else:
                     logger.error("Failed to create chat")
 
-            # Выполняем запрос
+            # Выполняем запрос с механизмом retry (до 3 попыток)
             logger.info(f"Executing query for chat_id={st.session_state.get('chat_id')}")
-            response = api_client.execute_query(
-                query=user_query, chat_id=st.session_state.get("chat_id")
+            response = api_client.execute_query_with_retry(
+                query=user_query,
+                chat_id=st.session_state.get("chat_id"),
+                max_retries=3
             )
             logger.info(f"Received response: {response is not None}")
 
@@ -330,8 +332,8 @@ if st.session_state.messages and st.session_state.messages[-1].get("role") == "u
                 # Перезагружаем страницу для отображения ответа ассистента
                 st.rerun()
             else:
-                logger.error("No response from API")
-                st.error("❌ Не удалось получить ответ от сервера")
+                logger.error("No response from API after all retry attempts")
+                st.error("❌ Не удалось получить ответ от сервера после 3 попыток. Попробуйте переформулировать вопрос или повторить запрос позже.")
 
         except Exception as e:
             logger.exception(f"Exception during query execution: {e}")
