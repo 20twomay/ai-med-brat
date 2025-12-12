@@ -1,37 +1,40 @@
 """Страница чата с медицинским ассистентом."""
 
-import sys
-import os
 import logging
+import os
+import sys
 
 # Добавляем путь к родительской директории для импорта модулей
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-import streamlit as st
+from io import StringIO
+
+import pandas as pd
 import plotly.io as pio
 import requests
-import pandas as pd
-from io import StringIO
+import streamlit as st
 from components import (
-    render_logo,
     render_chat_list,
-    render_user_profile_button,
     render_context_indicator,
-    render_logout_button
+    render_logo,
+    render_logout_button,
+    render_user_profile_button,
 )
-from utils import require_authentication, init_session_state, get_api_client, check_token_from_cookies
+from utils import (
+    check_token_from_cookies,
+    get_api_client,
+    init_session_state,
+    require_authentication,
+)
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO, format='[STREAMLIT] %(asctime)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="[STREAMLIT] %(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
 # Конфигурация страницы
 st.set_page_config(
-    page_title="Чат - Medical AI",
-    page_icon="💬",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="Чат - Medical AI", page_icon="💬", layout="wide", initial_sidebar_state="expanded"
 )
 
 # Инициализация сессии
@@ -51,7 +54,8 @@ if "sidebar_collapsed" not in st.session_state:
     st.session_state.sidebar_collapsed = False
 
 # Custom CSS для улучшения UI
-st.markdown("""
+st.markdown(
+    """
     <style>
     /* Скрыть стандартный sidebar toggle */
     [data-testid="collapsedControl"] {
@@ -92,7 +96,9 @@ st.markdown("""
         border-color: #d0d0d0 !important;
     }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ===== SIDEBAR =====
 with st.sidebar:
@@ -100,15 +106,15 @@ with st.sidebar:
     render_logo()
 
     st.markdown("---")
-    
+
     # Список чатов
     render_chat_list(api_client, current_chat_id=st.session_state.get("chat_id"))
-    
+
     st.markdown("---")
-    
+
     # Нижняя часть: Профиль пользователя
     render_user_profile_button(api_client)
-    
+
     # Кнопка выхода
     render_logout_button()
 
@@ -133,19 +139,27 @@ if st.session_state.get("chat_id") and not st.session_state.get("messages_loaded
             # Преобразуем сообщения из API в формат для отображения
             st.session_state.messages = []
             for msg in messages_data["messages"]:
-                message_dict = {
-                    "role": msg["role"],
-                    "content": msg["content"]
-                }
+                message_dict = {"role": msg["role"], "content": msg["content"]}
                 # Добавляем артефакты если они есть
                 if msg.get("artifacts"):
                     artifacts = []
                     if "charts" in msg["artifacts"]:
                         for chart_path in msg["artifacts"]["charts"]:
-                            artifacts.append({"type": "chart", "url": f"{api_client.base_url}/charts/{chart_path}"})
+                            chart_path = str(st.session_state.chat_id) + "/" + chart_path
+                            logger.info(f"Adding chart artifact: {chart_path}")
+                            artifacts.append(
+                                {
+                                    "type": "chart",
+                                    "url": f"{api_client.base_url}/charts/{chart_path}",
+                                }
+                            )
                     if "tables" in msg["artifacts"]:
                         for table_path in msg["artifacts"]["tables"]:
-                            artifacts.append({"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"})
+                            table_path = str(st.session_state.chat_id) + "/" + table_path
+                            logger.info(f"Adding table artifact: {table_path}")
+                            artifacts.append(
+                                {"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"}
+                            )
                     if artifacts:
                         message_dict["artifacts"] = artifacts
                 st.session_state.messages.append(message_dict)
@@ -183,10 +197,14 @@ for idx, message in enumerate(st.session_state.messages):
                         response = requests.get(artifact_url, headers=headers)
                         if response.status_code == 200:
                             fig = pio.from_json(response.text)
-                            st.plotly_chart(fig, use_container_width=True, key=f"chart_{idx}_{artifact_idx}")
+                            st.plotly_chart(
+                                fig, use_container_width=True, key=f"chart_{idx}_{artifact_idx}"
+                            )
                         else:
                             st.error(f"Не удалось загрузить график (код {response.status_code})")
-                            logger.error(f"Chart loading failed: {response.status_code} - {artifact_url}")
+                            logger.error(
+                                f"Chart loading failed: {response.status_code} - {artifact_url}"
+                            )
                     except Exception as e:
                         st.error(f"Ошибка при загрузке графика: {str(e)}")
                         logger.error(f"Error loading chart {artifact_url}: {e}")
@@ -207,7 +225,7 @@ for idx, message in enumerate(st.session_state.messages):
 
                             # Кнопка для скачивания CSV
                             csv_data = response.text
-                            filename = artifact_url.split('/')[-1]
+                            filename = artifact_url.split("/")[-1]
                             st.download_button(
                                 label="📥 Скачать CSV",
                                 data=csv_data,
@@ -217,7 +235,9 @@ for idx, message in enumerate(st.session_state.messages):
                             )
                         else:
                             st.error(f"Не удалось загрузить CSV (код {response.status_code})")
-                            logger.error(f"CSV loading failed: {response.status_code} - {artifact_url}")
+                            logger.error(
+                                f"CSV loading failed: {response.status_code} - {artifact_url}"
+                            )
                     except Exception as e:
                         st.error(f"Ошибка при загрузке CSV: {str(e)}")
                         logger.error(f"Error loading CSV {artifact_url}: {e}")
@@ -228,9 +248,7 @@ with st.form(key="chat_form", clear_on_submit=True):
 
     with col1:
         user_input = st.text_input(
-            "Ваше сообщение:",
-            placeholder="Спросите что-нибудь...",
-            label_visibility="collapsed"
+            "Ваше сообщение:", placeholder="Спросите что-нибудь...", label_visibility="collapsed"
         )
 
     with col2:
@@ -241,10 +259,7 @@ if submit_button and user_input:
     logger.info(f"User submitted message: {user_input[:50]}...")
 
     # Добавляем сообщение пользователя
-    st.session_state.messages.append({
-        "role": "user",
-        "content": user_input
-    })
+    st.session_state.messages.append({"role": "user", "content": user_input})
     logger.info(f"Added user message to session, total messages: {len(st.session_state.messages)}")
 
     # Перезагружаем страницу для немедленного отображения сообщения пользователя
@@ -272,11 +287,10 @@ if st.session_state.messages and st.session_state.messages[-1].get("role") == "u
             # Выполняем запрос
             logger.info(f"Executing query for chat_id={st.session_state.get('chat_id')}")
             response = api_client.execute_query(
-                query=user_query,
-                chat_id=st.session_state.get("chat_id")
+                query=user_query, chat_id=st.session_state.get("chat_id")
             )
             logger.info(f"Received response: {response is not None}")
-            
+
             if response:
                 logger.info(f"Processing response: {list(response.keys())}")
                 # Обновляем количество токенов (добавляем к текущему значению)
@@ -286,27 +300,32 @@ if st.session_state.messages and st.session_state.messages[-1].get("role") == "u
 
                 # Добавляем ответ ассистента (поле "result" из ExecuteResponse)
                 result_content = response.get("result", "Извините, не удалось получить ответ.")
-                logger.info(f"Assistant response content: {result_content[:200] if result_content else 'EMPTY'}")
-                assistant_message = {
-                    "role": "assistant",
-                    "content": result_content
-                }
-                
+                logger.info(
+                    f"Assistant response content: {result_content[:200] if result_content else 'EMPTY'}"
+                )
+                assistant_message = {"role": "assistant", "content": result_content}
+
                 # Добавляем артефакты (графики и таблицы)
                 artifacts = []
                 if "charts" in response and response["charts"]:
                     for chart_path in response["charts"]:
-                        artifacts.append({"type": "chart", "url": f"{api_client.base_url}/charts/{chart_path}"})
+                        artifacts.append(
+                            {"type": "chart", "url": f"{api_client.base_url}/charts/{chart_path}"}
+                        )
                 if "tables" in response and response["tables"]:
                     for table_path in response["tables"]:
-                        artifacts.append({"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"})
-                
+                        artifacts.append(
+                            {"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"}
+                        )
+
                 if artifacts:
                     assistant_message["artifacts"] = artifacts
                     logger.info(f"Added {len(artifacts)} artifacts")
-                
+
                 st.session_state.messages.append(assistant_message)
-                logger.info(f"Added assistant message, total messages: {len(st.session_state.messages)}")
+                logger.info(
+                    f"Added assistant message, total messages: {len(st.session_state.messages)}"
+                )
 
                 # Перезагружаем страницу для отображения ответа ассистента
                 st.rerun()
