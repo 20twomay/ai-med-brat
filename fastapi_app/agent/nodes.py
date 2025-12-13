@@ -91,11 +91,24 @@ async def executor_node(state: AgentState) -> AgentState:
     # Финальная суммаризация веб-поиска
     web_search_content = state.get("web_search_content", "")
     if not response.tool_calls and web_search_content:
-        logger.info("Adding web search summarization to final response")
-        try:
-            # Промпт для суммаризации веб-поиска
-            summarization_prompt = ChatPromptTemplate.from_messages([
-                ("system", """Ты - медицинский аналитик. Твоя задача - создать краткий глобальный инсайт на основе информации из интернета.
+        # Проверяем, не добавил ли уже агент глобальный инсайт самостоятельно
+        content_lower = response.content.lower()
+        has_global_insight = (
+            "глобальный инсайт" in content_lower or
+            "🌐" in response.content or
+            "информация из интернета" in content_lower or
+            "данные из интернета" in content_lower or
+            "веб-поиск" in content_lower
+        )
+
+        if has_global_insight:
+            logger.info("Agent already added global insights, skipping automatic summarization")
+        else:
+            logger.info("Adding web search summarization to final response")
+            try:
+                # Промпт для суммаризации веб-поиска
+                summarization_prompt = ChatPromptTemplate.from_messages([
+                    ("system", """Ты - медицинский аналитик. Твоя задача - создать краткий глобальный инсайт на основе информации из интернета.
 
 ВАЖНО: Этот раздел добавляется ОТДЕЛЬНО от основного анализа локальной БД!
 
@@ -104,35 +117,35 @@ async def executor_node(state: AgentState) -> AgentState:
 - Фокусируйся на ГЛОБАЛЬНЫХ трендах, статистике, новых исследованиях
 - НЕ дублируй информацию, которая может быть в локальной БД
 - Обязательно укажи ИСТОЧНИКИ в конце (URL и названия)
-- Формат: markdown с заголовком "## 🌐 Глобальный инсайт из интернета"
+- Формат: markdown с заголовком "### Глобальный инсайт из интернета"
 - Будь кратким и информативным (максимум 3-4 абзаца)
 - Не создавай таблицы, графики или сложные структуры данных"""),
-                ("human", "Информация из веб-поиска:\n\n{web_content}")
-            ])
+                    ("human", "Информация из веб-поиска:\n\n{web_content}")
+                ])
 
-            llm = _get_llm()
-            messages = summarization_prompt.format_messages(web_content=web_search_content)
-            summary_response = await llm.ainvoke(messages)
+                llm = _get_llm()
+                messages = summarization_prompt.format_messages(web_content=web_search_content)
+                summary_response = await llm.ainvoke(messages)
 
-            # Обновляем токены
-            if hasattr(summary_response, "response_metadata") and summary_response.response_metadata:
-                usage = summary_response.response_metadata.get("token_usage", {})
-                input_tokens += usage.get("prompt_tokens", 0)
-                output_tokens += usage.get("completion_tokens", 0)
-                total_cost += usage.get("cost", 0.0)
+                # Обновляем токены
+                if hasattr(summary_response, "response_metadata") and summary_response.response_metadata:
+                    usage = summary_response.response_metadata.get("token_usage", {})
+                    input_tokens += usage.get("prompt_tokens", 0)
+                    output_tokens += usage.get("completion_tokens", 0)
+                    total_cost += usage.get("cost", 0.0)
 
-            # Создаем новый AIMessage с добавленной суммаризацией
-            enhanced_content = f"{response.content}\n\n{summary_response.content}"
-            response = AIMessage(
-                content=enhanced_content,
-                tool_calls=response.tool_calls,
-                id=response.id,
-                response_metadata=response.response_metadata
-            )
-            logger.info("Web search summarization added successfully")
-        except Exception as e:
-            logger.error(f"Error during web search summarization: {e}")
-            # Продолжаем без суммаризации в случае ошибки
+                # Создаем новый AIMessage с добавленной суммаризацией
+                enhanced_content = f"{response.content}\n\n{summary_response.content}"
+                response = AIMessage(
+                    content=enhanced_content,
+                    tool_calls=response.tool_calls,
+                    id=response.id,
+                    response_metadata=response.response_metadata
+                )
+                logger.info("Web search summarization added successfully")
+            except Exception as e:
+                logger.error(f"Error during web search summarization: {e}")
+                # Продолжаем без суммаризации в случае ошибки
 
     return {
         "messages": [response],

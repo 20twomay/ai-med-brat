@@ -210,6 +210,21 @@ button[kind="primary"]:focus {
 </style>
 """
 
+TOGGLE_STYLE: Final[str] = """
+<style>
+    /* Стилизация переключателя (toggle) */
+    div[data-testid="stToggle"] input:checked + div {
+        background-color: #16A8B1 !important;
+        border-color: #16A8B1 !important;
+    }
+    
+    div[data-testid="stToggle"] input:checked + div:hover {
+        background-color: #1497A0 !important;
+        border-color: #1497A0 !important;
+    }
+</style>
+"""
+
 
 def get_context_indicator_style(
     total_tokens: int,

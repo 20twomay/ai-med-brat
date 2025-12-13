@@ -36,7 +36,7 @@ from core import (
     init_session_state,
     require_authentication,
 )
-from styles import CHAT_FORM_STYLE
+from styles import CHAT_FORM_STYLE, TOGGLE_STYLE
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="[STREAMLIT] %(asctime)s - %(message)s")
@@ -65,6 +65,7 @@ api_client = get_api_client()
 
 # Custom CSS для улучшения UI
 st.markdown(CHAT_FORM_STYLE, unsafe_allow_html=True)
+st.markdown(TOGGLE_STYLE, unsafe_allow_html=True)
 
 # ===== SIDEBAR =====
 with st.sidebar:
@@ -226,6 +227,9 @@ for idx, message in enumerate(st.session_state[SESSION_MESSAGES]):
                         st.error(f"Ошибка при загрузке CSV: {str(e)}")
                         logger.error(f"Error loading CSV {artifact_url}: {e}")
 
+# Опция веб-поиска
+use_web_search = st.toggle("Web Search", key="web_search_toggle", help="Включить поиск в интернете для ответа")
+
 # Форма ввода сообщения
 with st.form(key="chat_form", clear_on_submit=True, border=False):
     # Используем HTML/CSS для создания единой формы с кнопкой внутри
@@ -246,8 +250,15 @@ with st.form(key="chat_form", clear_on_submit=True, border=False):
 if submit_button and user_input:
     logger.info(f"User submitted message: {user_input[:50]}...")
 
+    # Модифицируем запрос если включен веб-поиск
+    final_input = user_input
+    if use_web_search:
+        final_input += ". Примечание: используй веб-поиск (web-search)"
+    else:
+        final_input += ". Примечание: не используй веб-поиск (web-search)"
+
     # Добавляем сообщение пользователя
-    st.session_state[SESSION_MESSAGES].append({"role": ROLE_USER, "content": user_input})
+    st.session_state[SESSION_MESSAGES].append({"role": ROLE_USER, "content": final_input})
     logger.info(
         f"Added user message to session, total messages: {len(st.session_state[SESSION_MESSAGES])}"
     )
