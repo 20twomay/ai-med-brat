@@ -87,8 +87,6 @@ with st.sidebar:
 # Заголовок
 st.markdown("## Медицинский ассистент")
 st.markdown("")
-st.markdown("")
-st.markdown("")
 
 # Индикатор контекста над чатом
 total_tokens = st.session_state.get(SESSION_TOTAL_TOKENS, 0)
@@ -112,20 +110,38 @@ if st.session_state.get(SESSION_CHAT_ID) and not st.session_state.get(SESSION_ME
                     artifacts = []
                     if "charts" in msg["artifacts"]:
                         for chart_path in msg["artifacts"]["charts"]:
+                            if not chart_path:
+                                continue
+
                             logger.info(f"Adding chart artifact: {chart_path}")
+                            # Если путь не содержит ID чата, добавляем его
+                            if not str(chart_path).startswith(f"{chat_id}/"):
+                                full_chart_path = f"{chat_id}/{chart_path}"
+                            else:
+                                full_chart_path = chart_path
+                                
                             artifacts.append(
                                 {
                                     "type": ARTIFACT_TYPE_CHART,
-                                    "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{chart_path}",
+                                    "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{full_chart_path}",
                                 }
                             )
                     if "tables" in msg["artifacts"]:
                         for table_path in msg["artifacts"]["tables"]:
+                            if not table_path:
+                                continue
+
                             logger.info(f"Adding table artifact: {table_path}")
+                            # Если путь не содержит ID чата, добавляем его
+                            if not str(table_path).startswith(f"{chat_id}/"):
+                                full_table_path = f"{chat_id}/{table_path}"
+                            else:
+                                full_table_path = table_path
+
                             artifacts.append(
                                 {
                                     "type": ARTIFACT_TYPE_CSV,
-                                    "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{table_path}",
+                                    "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{full_table_path}",
                                 }
                             )
                     if artifacts:
@@ -213,7 +229,7 @@ for idx, message in enumerate(st.session_state[SESSION_MESSAGES]):
 # Форма ввода сообщения
 with st.form(key="chat_form", clear_on_submit=True, border=False):
     # Используем HTML/CSS для создания единой формы с кнопкой внутри
-    col1, col2 = st.columns([0.9, 0.1], gap="small", vertical_alignment="bottom")
+    col1, col2 = st.columns([1, 0.05], gap="small", vertical_alignment="bottom")
 
     with col1:
         user_input = st.text_input(
