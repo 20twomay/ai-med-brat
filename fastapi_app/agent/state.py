@@ -24,6 +24,9 @@ class AgentState(TypedDict):
     charts: list[str]  # Список путей к графикам в MinIO
     tables: list[str]  # Список путей к таблицам в MinIO
 
+    # Веб-поиск
+    web_search_content: str  # Результаты веб-поиска для финальной суммаризации
+
     # В пределах одного запроса
     input_tokens: int  # Количество входных токенов
     output_tokens: int  # Количество выходных токенов

@@ -33,6 +33,7 @@ def node_init_state(state: AgentState, config: RunnableConfig) -> AgentState:
         "is_solved": False,
         "charts": [],
         "tables": [],
+        "web_search_content": "",
         "input_tokens": state.get("input_tokens", 0),
         "output_tokens": state.get("output_tokens", 0),
         "total_cost": state.get("total_cost", 0.0),
