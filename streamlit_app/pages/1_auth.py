@@ -5,44 +5,52 @@ import logging
 import streamlit as st
 
 from api_client import APIClient
-from utils import init_session_state, validate_password_length, save_token_to_cookies, check_token_from_cookies
+from config import PAGE_CONFIGS
+from constants import (
+    MAX_PASSWORD_LENGTH_BYTES,
+    MSG_EMPTY_FIELDS,
+    MSG_LOGIN_ERROR,
+    MSG_LOGIN_SUCCESS,
+    MSG_PASSWORDS_MISMATCH,
+    MSG_REGISTER_ERROR,
+    MSG_REGISTER_SUCCESS,
+    SESSION_AUTHENTICATED,
+    SESSION_TOKEN,
+    SESSION_USER_INFO,
+)
+from core import (
+    check_token_from_localstorage,
+    init_session_state,
+    save_token_to_localstorage,
+    validate_password_length,
+)
+from styles import SIDEBAR_HIDE_STYLE
 
 logger = logging.getLogger(__name__)
 
+# Настройка страницы
+page_config = PAGE_CONFIGS["auth"]
 st.set_page_config(
-    page_title="Авторизация - MEDBRAT.AI",
-    page_icon="🔐",
-    layout="centered",
-    initial_sidebar_state="collapsed",
+    page_title=page_config.title,
+    page_icon=page_config.icon,
+    layout=page_config.layout,
+    initial_sidebar_state=page_config.initial_sidebar_state,
 )
 
 # Инициализация session state
 init_session_state()
 
-# Проверка токена из cookies
-check_token_from_cookies()
+# Проверка токена из localStorage
+check_token_from_localstorage()
 
 # API клиент
 api_client = APIClient()
 
-
 # Скрываем sidebar и навигацию для неавторизованных пользователей
-st.markdown(
-    """
-    <style>
-        [data-testid="stSidebar"] {
-            display: none;
-        }
-        [data-testid="stSidebarNav"] {
-            display: none;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown(SIDEBAR_HIDE_STYLE, unsafe_allow_html=True)
 
 # Проверка уже авторизованного пользователя
-if st.session_state.get("authenticated", False):
+if st.session_state.get(SESSION_AUTHENTICATED, False):
     st.switch_page("pages/2_chat.py")
 
 
@@ -78,24 +86,28 @@ with col2:
             
             if submit_login:
                 if not login_email or not login_password:
-                    st.error("❌ Заполните все поля")
+                    st.error(MSG_EMPTY_FIELDS)
                 else:
                     with st.spinner("Выполняю вход..."):
                         result = api_client.login(login_email, login_password)
                         
-                        if result:
-                            token = result.get("access_token")
-                            user = result.get("user")
-                            
-                            st.session_state.authenticated = True
-                            st.session_state.token = token
-                            st.session_state.user_info = user
-                            save_token_to_cookies(token)  # Сохраняем токен в cookies
-                            logger.info(f"User logged in: {user.get('email')}")
-                            st.success(f"✅ Добро пожаловать, {user.get('email')}!")
-                            st.switch_page("pages/2_chat.py")
-                        else:
-                            st.error("❌ Неверный email или пароль")
+                    if result:
+                        token = result.get("access_token")
+                        user = result.get("user")
+                        
+                        st.session_state[SESSION_AUTHENTICATED] = True
+                        st.session_state[SESSION_TOKEN] = token
+                        st.session_state[SESSION_USER_INFO] = user
+                        save_token_to_localstorage(token)
+                        logger.info(f"User logged in: {user.get('email')}")
+                        st.success(MSG_LOGIN_SUCCESS.format(email=user.get('email')))
+                        
+                        # Даем время для сохранения токена и отображения success message
+                        import time
+                        time.sleep(0.5)
+                        st.switch_page("pages/2_chat.py")
+                    else:
+                        st.error(MSG_LOGIN_ERROR)
     
     with tab2:
         st.markdown("#### Создать новый аккаунт")
@@ -111,23 +123,23 @@ with col2:
                 "Пароль:",
                 type="password",
                 placeholder="Минимум 6 символов, хотя бы одна заглавная буква",
-                max_chars=72,
+                max_chars=MAX_PASSWORD_LENGTH_BYTES,
             )
             
             register_password_confirm = st.text_input(
                 "Подтвердите пароль:",
                 type="password",
                 placeholder="Введите пароль ещё раз",
-                max_chars=72,
+                max_chars=MAX_PASSWORD_LENGTH_BYTES,
             )
             
             submit_register = st.form_submit_button("Зарегистрироваться", width='stretch')
             
             if submit_register:
                 if not register_email or not register_password:
-                    st.error("❌ Заполните все поля")
+                    st.error(MSG_EMPTY_FIELDS)
                 elif register_password != register_password_confirm:
-                    st.error("❌ Пароли не совпадают")
+                    st.error(MSG_PASSWORDS_MISMATCH)
                 else:
                     # Валидация пароля
                     password_error = validate_password_length(register_password)
@@ -137,49 +149,52 @@ with col2:
                         with st.spinner("Создаю аккаунт..."):
                             result = api_client.register(register_email, register_password)
                             
-                            if result:
-                                token = result.get("access_token")
-                                user = result.get("user")
-                                
-                                if not token or not user:
-                                    st.error("❌ Ошибка: неверный формат ответа от сервера")
-                                    logger.error(f"Invalid response format: {result}")
-                                else:
-                                    st.success(f"✅ Аккаунт создан! Добро пожаловать, {user.get('email')}!")
-                                    
-                                    # Автоматический вход
-                                    st.session_state.authenticated = True
-                                    st.session_state.token = token
-                                    st.session_state.user_info = user
-                                    save_token_to_cookies(token)  # Сохраняем токен в cookies
-                                    
-                                    st.info("🔄 Перезагружаю страницу...")
-                                    st.rerun()
+                        if result:
+                            token = result.get("access_token")
+                            user = result.get("user")
+                            
+                            if not token or not user:
+                                st.error("❌ Ошибка: неверный формат ответа от сервера")
+                                logger.error(f"Invalid response format: {result}")
                             else:
-                                st.error("❌ Ошибка регистрации. Возможно, email уже используется")
+                                st.success(
+                                    MSG_REGISTER_SUCCESS.format(email=user.get('email'))
+                                )
+                                
+                                # Автоматический вход
+                                st.session_state[SESSION_AUTHENTICATED] = True
+                                st.session_state[SESSION_TOKEN] = token
+                                st.session_state[SESSION_USER_INFO] = user
+                                save_token_to_localstorage(token)
+                                
+                                import time
+                                time.sleep(0.5)
+                                st.switch_page("pages/2_chat.py")
+                        else:
+                            st.error(MSG_REGISTER_ERROR)
 
-st.markdown("---")
+# st.markdown("---")
 
-# Проверка статуса API
-with st.expander("🔌 Проверить статус API"):
-    if st.button("Проверить соединение"):
-        health_data = api_client.get_health()
-        if health_data:
-            st.success("✅ FastAPI доступен")
+# # Проверка статуса API
+# with st.expander("Проверить статус API"):
+#     if st.button("Проверить соединение"):
+#         health_data = api_client.get_health()
+#         if health_data:
+#             st.success("✅ FastAPI доступен")
             
-            col_a, col_b = st.columns(2)
-            with col_a:
-                db_status = health_data.get("database", "unknown")
-                if db_status == "connected":
-                    st.success("✅ PostgreSQL подключен")
-                else:
-                    st.error("❌ PostgreSQL отключен")
+#             col_a, col_b = st.columns(2)
+#             with col_a:
+#                 db_status = health_data.get("database", "unknown")
+#                 if db_status == "connected":
+#                     st.success("✅ PostgreSQL подключен")
+#                 else:
+#                     st.error("❌ PostgreSQL отключен")
             
-            with col_b:
-                s3_status = health_data.get("s3", "unknown")
-                if s3_status == "connected":
-                    st.success("✅ MinIO подключен")
-                else:
-                    st.error("❌ MinIO отключен")
-        else:
-            st.error("❌ Не удалось подключиться к API")
+#             with col_b:
+#                 s3_status = health_data.get("s3", "unknown")
+#                 if s3_status == "connected":
+#                     st.success("✅ MinIO подключен")
+#                 else:
+#                     st.error("❌ MinIO отключен")
+#         else:
+#             st.error("❌ Не удалось подключиться к API")

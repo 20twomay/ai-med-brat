@@ -2,18 +2,23 @@
 
 import streamlit as st
 
-from utils import check_authentication, init_session_state
+from config import PAGE_CONFIGS
+from core import check_authentication, check_token_from_localstorage, init_session_state
 
 # Настройка страницы
+page_config = PAGE_CONFIGS["main"]
 st.set_page_config(
-    page_title="MEDBRAT.AI",
-    page_icon="🏥",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title=page_config.title,
+    page_icon=page_config.icon,
+    layout=page_config.layout,
+    initial_sidebar_state=page_config.initial_sidebar_state,
 )
 
 # Инициализация session state
 init_session_state()
+
+# Проверка токена из localStorage перед проверкой авторизации
+check_token_from_localstorage()
 
 # Проверка авторизации и перенаправление
 if not check_authentication():

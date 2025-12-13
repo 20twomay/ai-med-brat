@@ -1,18 +1,13 @@
 """Страница чата с медицинским ассистентом."""
 
 import logging
-import os
-import sys
-
-# Добавляем путь к родительской директории для импорта модулей
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-
 from io import StringIO
 
 import pandas as pd
 import plotly.io as pio
 import requests
 import streamlit as st
+
 from components import (
     render_chat_list,
     render_context_indicator,
@@ -20,100 +15,69 @@ from components import (
     render_logout_button,
     render_user_profile_button,
 )
-from utils import (
-    check_token_from_cookies,
+from config import PAGE_CONFIGS
+from constants import (
+    ARTIFACT_TYPE_CHART,
+    ARTIFACT_TYPE_CSV,
+    ENDPOINT_CHARTS,
+    HTTP_OK,
+    MSG_API_ERROR,
+    ROLE_ASSISTANT,
+    ROLE_USER,
+    SESSION_CHAT_ID,
+    SESSION_MESSAGES,
+    SESSION_MESSAGES_LOADED,
+    SESSION_TOKEN,
+    SESSION_TOTAL_TOKENS,
+)
+from core import (
+    check_token_from_localstorage,
     get_api_client,
     init_session_state,
     require_authentication,
 )
+from styles import CHAT_FORM_STYLE
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format="[STREAMLIT] %(asctime)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-
 # Конфигурация страницы
+page_config = PAGE_CONFIGS["chat"]
 st.set_page_config(
-    page_title="Чат - Medical AI", page_icon="💬", layout="wide", initial_sidebar_state="expanded"
+    page_title=page_config.title,
+    page_icon=page_config.icon,
+    layout=page_config.layout,
+    initial_sidebar_state=page_config.initial_sidebar_state,
 )
 
 # Инициализация сессии
 init_session_state()
 
-# Проверка токена из cookies
-check_token_from_cookies()
+# Проверка токена из localStorage
+check_token_from_localstorage()
 
-# Проверка аутентификации
+# Проверка аутентификации (останавливает выполнение если не авторизован)
 require_authentication()
 
 # Получение API клиента
 api_client = get_api_client()
 
-# Инициализация состояния сайдбара
-if "sidebar_collapsed" not in st.session_state:
-    st.session_state.sidebar_collapsed = False
-
 # Custom CSS для улучшения UI
-st.markdown(
-    """
-    <style>
-    /* Скрыть стандартный sidebar toggle */
-    [data-testid="collapsedControl"] {
-        display: none;
-    }
-
-    /* Скрыть стандартную навигацию Streamlit */
-    [data-testid="stSidebarNav"] {
-        display: none;
-    }
-
-    /* Стиль для кнопок чатов в сайдбаре */
-    [data-testid="stSidebar"] .stButton button {
-        text-align: left !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    /* Стиль для кнопки отправки в форме */
-    [data-testid="stForm"] button[kind="primary"] {
-        background-color: white !important;
-        color: black !important;
-        border: 2px solid #e0e0e0 !important;
-        border-radius: 50% !important;
-        width: 48px !important;
-        height: 48px !important;
-        padding: 0 !important;
-        min-width: 48px !important;
-        font-size: 1.5rem !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
-
-    [data-testid="stForm"] button[kind="primary"]:hover {
-        background-color: #f0f0f0 !important;
-        border-color: #d0d0d0 !important;
-    }
-    </style>
-""",
-    unsafe_allow_html=True,
-)
+st.markdown(CHAT_FORM_STYLE, unsafe_allow_html=True)
 
 # ===== SIDEBAR =====
 with st.sidebar:
     # Логотип в самом верху
     render_logo()
 
-    st.markdown("---")
-
-    # Список чатов
-    render_chat_list(api_client, current_chat_id=st.session_state.get("chat_id"))
-
-    st.markdown("---")
-
-    # Нижняя часть: Профиль пользователя
+    # Аккаунт и список чатов
     render_user_profile_button(api_client)
+    render_chat_list(api_client, current_chat_id=st.session_state.get(SESSION_CHAT_ID))
+
+    st.markdown(" ")
+    st.markdown(" ")
+    st.markdown("---")
 
     # Кнопка выхода
     render_logout_button()
@@ -121,23 +85,24 @@ with st.sidebar:
 # ===== MAIN CONTENT =====
 
 # Заголовок
-st.markdown("#### Медицинский ассистент")
-st.markdown("")
-st.markdown("")
+st.markdown("## Медицинский ассистент")
 st.markdown("")
 
 # Индикатор контекста над чатом
-total_tokens = st.session_state.get("total_tokens", 0)
+total_tokens = st.session_state.get(SESSION_TOTAL_TOKENS, 0)
 render_context_indicator(total_tokens)
+st.markdown("")
+st.markdown("")
 
 # Загрузка истории сообщений при открытии чата
-if st.session_state.get("chat_id") and not st.session_state.get("messages_loaded", False):
-    logger.info(f"Loading message history for chat_id={st.session_state.chat_id}")
+if st.session_state.get(SESSION_CHAT_ID) and not st.session_state.get(SESSION_MESSAGES_LOADED, False):
+    chat_id = st.session_state[SESSION_CHAT_ID]
+    logger.info(f"Loading message history for chat_id={chat_id}")
     with st.spinner("Загрузка истории чата..."):
-        messages_data = api_client.get_chat_messages(st.session_state.chat_id)
+        messages_data = api_client.get_chat_messages(chat_id)
         if messages_data and "messages" in messages_data:
             # Преобразуем сообщения из API в формат для отображения
-            st.session_state.messages = []
+            st.session_state[SESSION_MESSAGES] = []
             for msg in messages_data["messages"]:
                 message_dict = {"role": msg["role"], "content": msg["content"]}
                 # Добавляем артефакты если они есть
@@ -145,33 +110,52 @@ if st.session_state.get("chat_id") and not st.session_state.get("messages_loaded
                     artifacts = []
                     if "charts" in msg["artifacts"]:
                         for chart_path in msg["artifacts"]["charts"]:
-                            chart_path = str(st.session_state.chat_id) + "/" + chart_path
+                            if not chart_path:
+                                continue
+
                             logger.info(f"Adding chart artifact: {chart_path}")
+                            # Если путь не содержит ID чата, добавляем его
+                            if not str(chart_path).startswith(f"{chat_id}/"):
+                                full_chart_path = f"{chat_id}/{chart_path}"
+                            else:
+                                full_chart_path = chart_path
+                                
                             artifacts.append(
                                 {
-                                    "type": "chart",
-                                    "url": f"{api_client.base_url}/charts/{chart_path}",
+                                    "type": ARTIFACT_TYPE_CHART,
+                                    "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{full_chart_path}",
                                 }
                             )
                     if "tables" in msg["artifacts"]:
                         for table_path in msg["artifacts"]["tables"]:
-                            table_path = str(st.session_state.chat_id) + "/" + table_path
+                            if not table_path:
+                                continue
+
                             logger.info(f"Adding table artifact: {table_path}")
+                            # Если путь не содержит ID чата, добавляем его
+                            if not str(table_path).startswith(f"{chat_id}/"):
+                                full_table_path = f"{chat_id}/{table_path}"
+                            else:
+                                full_table_path = table_path
+
                             artifacts.append(
-                                {"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"}
+                                {
+                                    "type": ARTIFACT_TYPE_CSV,
+                                    "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{full_table_path}",
+                                }
                             )
                     if artifacts:
                         message_dict["artifacts"] = artifacts
-                st.session_state.messages.append(message_dict)
-            st.session_state.messages_loaded = True
-            logger.info(f"Loaded {len(st.session_state.messages)} messages from history")
+                st.session_state[SESSION_MESSAGES].append(message_dict)
+            st.session_state[SESSION_MESSAGES_LOADED] = True
+            logger.info(f"Loaded {len(st.session_state[SESSION_MESSAGES])} messages from history")
 
 # Отображение истории сообщений
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+if SESSION_MESSAGES not in st.session_state:
+    st.session_state[SESSION_MESSAGES] = []
 
-for idx, message in enumerate(st.session_state.messages):
-    role = message.get("role", "user")
+for idx, message in enumerate(st.session_state[SESSION_MESSAGES]):
+    role = message.get("role", ROLE_USER)
     content = message.get("content", "")
 
     # Пропускаем пустые сообщения
@@ -187,15 +171,15 @@ for idx, message in enumerate(st.session_state.messages):
                 artifact_type = artifact.get("type", "")
                 artifact_url = artifact.get("url", "")
 
-                if artifact_type == "chart" and artifact_url:
+                if artifact_type == ARTIFACT_TYPE_CHART and artifact_url:
                     try:
                         # Загружаем JSON графика Plotly с авторизацией
                         headers = {}
-                        if st.session_state.get("token"):
-                            headers["Authorization"] = f"Bearer {st.session_state.token}"
+                        if st.session_state.get(SESSION_TOKEN):
+                            headers["Authorization"] = f"Bearer {st.session_state[SESSION_TOKEN]}"
 
                         response = requests.get(artifact_url, headers=headers)
-                        if response.status_code == 200:
+                        if response.status_code == HTTP_OK:
                             fig = pio.from_json(response.text)
                             st.plotly_chart(
                                 fig, use_container_width=True, key=f"chart_{idx}_{artifact_idx}"
@@ -208,15 +192,15 @@ for idx, message in enumerate(st.session_state.messages):
                     except Exception as e:
                         st.error(f"Ошибка при загрузке графика: {str(e)}")
                         logger.error(f"Error loading chart {artifact_url}: {e}")
-                elif artifact_type == "csv" and artifact_url:
+                elif artifact_type == ARTIFACT_TYPE_CSV and artifact_url:
                     try:
                         # Загружаем CSV с авторизацией
                         headers = {}
-                        if st.session_state.get("token"):
-                            headers["Authorization"] = f"Bearer {st.session_state.token}"
+                        if st.session_state.get(SESSION_TOKEN):
+                            headers["Authorization"] = f"Bearer {st.session_state[SESSION_TOKEN]}"
 
                         response = requests.get(artifact_url, headers=headers)
-                        if response.status_code == 200:
+                        if response.status_code == HTTP_OK:
                             # Парсим CSV для получения информации о размере
                             df = pd.read_csv(StringIO(response.text))
                             st.caption(
@@ -227,7 +211,7 @@ for idx, message in enumerate(st.session_state.messages):
                             csv_data = response.text
                             filename = artifact_url.split("/")[-1]
                             st.download_button(
-                                label="📥 Скачать CSV",
+                                label="Скачать CSV",
                                 data=csv_data,
                                 file_name=f"results_{filename}",
                                 mime="text/csv",
@@ -243,12 +227,16 @@ for idx, message in enumerate(st.session_state.messages):
                         logger.error(f"Error loading CSV {artifact_url}: {e}")
 
 # Форма ввода сообщения
-with st.form(key="chat_form", clear_on_submit=True):
-    col1, col2 = st.columns([9, 1])
+with st.form(key="chat_form", clear_on_submit=True, border=False):
+    # Используем HTML/CSS для создания единой формы с кнопкой внутри
+    col1, col2 = st.columns([1, 0.05], gap="small", vertical_alignment="bottom")
 
     with col1:
         user_input = st.text_input(
-            "Ваше сообщение:", placeholder="Спросите что-нибудь...", label_visibility="collapsed"
+            "Ваше сообщение:",
+            placeholder="      Спросите что-нибудь...",
+            label_visibility="collapsed",
+            key="user_message_input"
         )
 
     with col2:
@@ -259,37 +247,37 @@ if submit_button and user_input:
     logger.info(f"User submitted message: {user_input[:50]}...")
 
     # Добавляем сообщение пользователя
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    logger.info(f"Added user message to session, total messages: {len(st.session_state.messages)}")
+    st.session_state[SESSION_MESSAGES].append({"role": ROLE_USER, "content": user_input})
+    logger.info(
+        f"Added user message to session, total messages: {len(st.session_state[SESSION_MESSAGES])}"
+    )
 
     # Перезагружаем страницу для немедленного отображения сообщения пользователя
     st.rerun()
 
 # Обработка запроса к API (выполняется после rerun, если есть сообщение без ответа)
-if st.session_state.messages and st.session_state.messages[-1].get("role") == "user":
+if st.session_state[SESSION_MESSAGES] and st.session_state[SESSION_MESSAGES][-1].get("role") == ROLE_USER:
     # Последнее сообщение от пользователя, нужно получить ответ
-    user_query = st.session_state.messages[-1].get("content")
+    user_query = st.session_state[SESSION_MESSAGES][-1].get("content")
 
     # Отправляем запрос к API
-    with st.spinner("🤔 Ассистент думает..."):
+    with st.spinner("Ассистент думает..."):
         try:
             # Если нет активного чата, создаем новый
-            if not st.session_state.get("chat_id"):
+            if not st.session_state.get(SESSION_CHAT_ID):
                 logger.info("No active chat, creating new one")
                 chat_result = api_client.create_chat(title=user_query[:50])
                 if chat_result:
-                    st.session_state.chat_id = chat_result.get("id")
-                    st.session_state.thread_id = chat_result.get("thread_id")
-                    logger.info(f"Created new chat: {st.session_state.chat_id}")
+                    st.session_state[SESSION_CHAT_ID] = chat_result.get("id")
+                    logger.info(f"Created new chat: {st.session_state[SESSION_CHAT_ID]}")
                 else:
                     logger.error("Failed to create chat")
 
-            # Выполняем запрос с механизмом retry (до 3 попыток)
-            logger.info(f"Executing query for chat_id={st.session_state.get('chat_id')}")
+            # Выполняем запрос с механизмом retry
+            logger.info(f"Executing query for chat_id={st.session_state.get(SESSION_CHAT_ID)}")
             response = api_client.execute_query_with_retry(
                 query=user_query,
-                chat_id=st.session_state.get("chat_id"),
-                max_retries=3
+                chat_id=st.session_state.get(SESSION_CHAT_ID),
             )
             logger.info(f"Received response: {response is not None}")
 
@@ -298,54 +286,50 @@ if st.session_state.messages and st.session_state.messages[-1].get("role") == "u
                 # Обновляем количество токенов (добавляем к текущему значению)
                 input_tokens = response.get("input_tokens", 0)
                 output_tokens = response.get("output_tokens", 0)
-                st.session_state.total_tokens += input_tokens + output_tokens
+                st.session_state[SESSION_TOTAL_TOKENS] += input_tokens + output_tokens
 
                 # Добавляем ответ ассистента (поле "result" из ExecuteResponse)
                 result_content = response.get("result", "Извините, не удалось получить ответ.")
                 logger.info(
                     f"Assistant response content: {result_content[:200] if result_content else 'EMPTY'}"
                 )
-                assistant_message = {"role": "assistant", "content": result_content}
+                assistant_message = {"role": ROLE_ASSISTANT, "content": result_content}
 
                 # Добавляем артефакты (графики и таблицы)
                 artifacts = []
                 if "charts" in response and response["charts"]:
                     for chart_path in response["charts"]:
                         artifacts.append(
-                            {"type": "chart", "url": f"{api_client.base_url}/charts/{chart_path}"}
+                            {
+                                "type": ARTIFACT_TYPE_CHART,
+                                "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{chart_path}",
+                            }
                         )
                 if "tables" in response and response["tables"]:
                     for table_path in response["tables"]:
                         artifacts.append(
-                            {"type": "csv", "url": f"{api_client.base_url}/charts/{table_path}"}
+                            {
+                                "type": ARTIFACT_TYPE_CSV,
+                                "url": f"{api_client.base_url}{ENDPOINT_CHARTS}/{table_path}",
+                            }
                         )
 
                 if artifacts:
                     assistant_message["artifacts"] = artifacts
                     logger.info(f"Added {len(artifacts)} artifacts")
 
-                st.session_state.messages.append(assistant_message)
+                st.session_state[SESSION_MESSAGES].append(assistant_message)
                 logger.info(
-                    f"Added assistant message, total messages: {len(st.session_state.messages)}"
+                    f"Added assistant message, total messages: {len(st.session_state[SESSION_MESSAGES])}"
                 )
 
                 # Перезагружаем страницу для отображения ответа ассистента
                 st.rerun()
             else:
                 logger.error("No response from API after all retry attempts")
-                st.error("❌ Не удалось получить ответ от сервера после 3 попыток. Попробуйте переформулировать вопрос или повторить запрос позже.")
+                from config import app_config
+                st.error(MSG_API_ERROR.format(retries=app_config.max_retries))
 
         except Exception as e:
             logger.exception(f"Exception during query execution: {e}")
             st.error(f"❌ Произошла ошибка: {str(e)}")
-
-# Кнопка очистки чата
-if st.session_state.messages:
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col3:
-        if st.button("🗑️ Очистить чат", type="secondary"):
-            st.session_state.messages = []
-            st.session_state.chat_id = None
-            st.session_state.total_tokens = 0
-            st.session_state.messages_loaded = False
-            st.rerun()

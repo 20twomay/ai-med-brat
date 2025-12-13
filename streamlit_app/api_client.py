@@ -1,28 +1,45 @@
-"""
-Централизованный API клиент для взаимодействия с backend
-"""
+"""Централизованный API клиент для взаимодействия с backend."""
 
 import logging
-import os
 from typing import Any, Dict, Optional
 
 import requests
+
+from config import app_config
+from constants import (
+    DEFAULT_API_TIMEOUT,
+    DEFAULT_MAX_RETRIES,
+    ENDPOINT_AUTH_LOGIN,
+    ENDPOINT_AUTH_ME,
+    ENDPOINT_AUTH_REGISTER,
+    ENDPOINT_CHATS,
+    ENDPOINT_EXECUTE,
+    ENDPOINT_HEALTH,
+    HEALTH_CHECK_TIMEOUT,
+    HTTP_CREATED,
+    HTTP_NO_CONTENT,
+    HTTP_OK,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class APIClient:
-    """Клиент для взаимодействия с FastAPI backend"""
+    """Клиент для взаимодействия с FastAPI backend."""
 
-    def __init__(self, base_url: Optional[str] = None, timeout: int = 60):
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        timeout: int = DEFAULT_API_TIMEOUT,
+    ) -> None:
         """
-        Инициализация API клиента
+        Инициализация API клиента.
         
         Args:
-            base_url: Базовый URL API (по умолчанию из переменной окружения)
+            base_url: Базовый URL API (по умолчанию из конфигурации)
             timeout: Таймаут запросов в секундах
         """
-        self.base_url = base_url or os.getenv("API_URL", "http://localhost:8000")
+        self.base_url = base_url or app_config.api_url
         self.timeout = timeout
         self.token: Optional[str] = None
 
@@ -41,9 +58,12 @@ class APIClient:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    def _handle_response(self, response: requests.Response) -> Optional[Dict[str, Any]]:
+    def _handle_response(
+        self,
+        response: requests.Response,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Обработка ответа от сервера
+        Обработка ответа от сервера.
         
         Args:
             response: Ответ от сервера
@@ -51,15 +71,26 @@ class APIClient:
         Returns:
             JSON данные или None в случае ошибки
         """
-        if response.status_code in (200, 201):
-            return response.json()
+        if response.status_code in (HTTP_OK, HTTP_CREATED):
+            try:
+                return response.json()
+            except ValueError as e:
+                logger.error(f"Failed to parse JSON response: {e}")
+                return None
         
-        logger.error(f"API request failed with status {response.status_code}: {response.text}")
+        logger.error(
+            f"API request failed with status {response.status_code}: "
+            f"{response.text[:200]}"
+        )
         return None
 
-    def register(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+    def register(
+        self,
+        email: str,
+        password: str,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Регистрация нового пользователя
+        Регистрация нового пользователя.
         
         Args:
             email: Email пользователя
@@ -70,7 +101,7 @@ class APIClient:
         """
         try:
             response = requests.post(
-                f"{self.base_url}/auth/register",
+                f"{self.base_url}{ENDPOINT_AUTH_REGISTER}",
                 json={"email": email, "password": password},
                 timeout=self.timeout,
             )
@@ -79,9 +110,13 @@ class APIClient:
             logger.error(f"Registration failed: {e}")
             return None
 
-    def login(self, email: str, password: str) -> Optional[Dict[str, Any]]:
+    def login(
+        self,
+        email: str,
+        password: str,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Вход пользователя
+        Вход пользователя.
         
         Args:
             email: Email пользователя
@@ -92,7 +127,7 @@ class APIClient:
         """
         try:
             response = requests.post(
-                f"{self.base_url}/auth/login",
+                f"{self.base_url}{ENDPOINT_AUTH_LOGIN}",
                 json={"email": email, "password": password},
                 timeout=self.timeout,
             )
@@ -101,9 +136,13 @@ class APIClient:
             logger.error(f"Login failed: {e}")
             return None
 
-    def execute_query(self, query: str, chat_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    def execute_query(
+        self,
+        query: str,
+        chat_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Выполнение анализа данных
+        Выполнение анализа данных.
 
         Args:
             query: Запрос пользователя
@@ -113,12 +152,12 @@ class APIClient:
             Результат анализа или None в случае ошибки
         """
         try:
-            payload = {"query": query}
+            payload: Dict[str, Any] = {"query": query}
             if chat_id:
                 payload["chat_id"] = chat_id
 
             response = requests.post(
-                f"{self.base_url}/execute",
+                f"{self.base_url}{ENDPOINT_EXECUTE}",
                 json=payload,
                 headers=self._get_headers(),
                 timeout=None,  # Запросы могут быть долгими
@@ -128,14 +167,19 @@ class APIClient:
             logger.error(f"Execute query failed: {e}")
             return None
 
-    def execute_query_with_retry(self, query: str, chat_id: Optional[int] = None, max_retries: int = 3) -> Optional[Dict[str, Any]]:
+    def execute_query_with_retry(
+        self,
+        query: str,
+        chat_id: Optional[int] = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Выполнить запрос к API с механизмом повторных попыток при пустом ответе
+        Выполнить запрос к API с механизмом повторных попыток при пустом ответе.
 
         Args:
             query: Запрос пользователя
             chat_id: ID чата (опционально)
-            max_retries: Максимальное количество попыток (по умолчанию 3)
+            max_retries: Максимальное количество попыток
 
         Returns:
             Ответ от API или None в случае неудачи после всех попыток
@@ -169,15 +213,15 @@ class APIClient:
 
     def get_health(self) -> Optional[Dict[str, Any]]:
         """
-        Проверка состояния API
+        Проверка состояния API.
         
         Returns:
             Статус сервисов или None в случае ошибки
         """
         try:
             response = requests.get(
-                f"{self.base_url}/health",
-                timeout=5,
+                f"{self.base_url}{ENDPOINT_HEALTH}",
+                timeout=HEALTH_CHECK_TIMEOUT,
             )
             return self._handle_response(response)
         except requests.exceptions.RequestException as e:
@@ -186,14 +230,14 @@ class APIClient:
 
     def get_user_info(self) -> Optional[Dict[str, Any]]:
         """
-        Получение информации о текущем пользователе
+        Получение информации о текущем пользователе.
         
         Returns:
             Информация о пользователе или None в случае ошибки
         """
         try:
             response = requests.get(
-                f"{self.base_url}/auth/me",
+                f"{self.base_url}{ENDPOINT_AUTH_ME}",
                 headers=self._get_headers(),
                 timeout=self.timeout,
             )
@@ -202,9 +246,13 @@ class APIClient:
             logger.error(f"Get user info failed: {e}")
             return None
 
-    def get_chats(self, skip: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
+    def get_chats(
+        self,
+        skip: int = 0,
+        limit: int = app_config.default_chats_limit,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Получение списка чатов текущего пользователя
+        Получение списка чатов текущего пользователя.
         
         Args:
             skip: Количество чатов для пропуска
@@ -215,7 +263,7 @@ class APIClient:
         """
         try:
             response = requests.get(
-                f"{self.base_url}/chats",
+                f"{self.base_url}{ENDPOINT_CHATS}",
                 params={"skip": skip, "limit": limit},
                 headers=self._get_headers(),
                 timeout=self.timeout,
@@ -227,7 +275,7 @@ class APIClient:
 
     def create_chat(self, title: str = "Новый чат") -> Optional[Dict[str, Any]]:
         """
-        Создание нового чата
+        Создание нового чата.
         
         Args:
             title: Название чата
@@ -237,7 +285,7 @@ class APIClient:
         """
         try:
             response = requests.post(
-                f"{self.base_url}/chats",
+                f"{self.base_url}{ENDPOINT_CHATS}",
                 json={"title": title},
                 headers=self._get_headers(),
                 timeout=self.timeout,
@@ -249,7 +297,7 @@ class APIClient:
 
     def delete_chat(self, chat_id: int) -> bool:
         """
-        Удаление чата
+        Удаление чата.
         
         Args:
             chat_id: ID чата для удаления
@@ -259,18 +307,23 @@ class APIClient:
         """
         try:
             response = requests.delete(
-                f"{self.base_url}/chats/{chat_id}",
+                f"{self.base_url}{ENDPOINT_CHATS}/{chat_id}",
                 headers=self._get_headers(),
                 timeout=self.timeout,
             )
-            return response.status_code == 204
+            return response.status_code == HTTP_NO_CONTENT
         except requests.exceptions.RequestException as e:
             logger.error(f"Delete chat failed: {e}")
             return False
 
-    def get_chat_messages(self, chat_id: int, skip: int = 0, limit: int = 100) -> Optional[Dict[str, Any]]:
+    def get_chat_messages(
+        self,
+        chat_id: int,
+        skip: int = 0,
+        limit: int = app_config.default_messages_limit,
+    ) -> Optional[Dict[str, Any]]:
         """
-        Получение истории сообщений чата
+        Получение истории сообщений чата.
         
         Args:
             chat_id: ID чата
@@ -282,7 +335,7 @@ class APIClient:
         """
         try:
             response = requests.get(
-                f"{self.base_url}/chats/{chat_id}/messages",
+                f"{self.base_url}{ENDPOINT_CHATS}/{chat_id}/messages",
                 params={"skip": skip, "limit": limit},
                 headers=self._get_headers(),
                 timeout=self.timeout,
