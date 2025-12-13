@@ -91,19 +91,23 @@ with col2:
                     with st.spinner("Выполняю вход..."):
                         result = api_client.login(login_email, login_password)
                         
-                        if result:
-                            token = result.get("access_token")
-                            user = result.get("user")
-                            
-                            st.session_state[SESSION_AUTHENTICATED] = True
-                            st.session_state[SESSION_TOKEN] = token
-                            st.session_state[SESSION_USER_INFO] = user
-                            save_token_to_localstorage(token)
-                            logger.info(f"User logged in: {user.get('email')}")
-                            st.success(MSG_LOGIN_SUCCESS.format(email=user.get('email')))
-                            st.switch_page("pages/2_chat.py")
-                        else:
-                            st.error(MSG_LOGIN_ERROR)
+                    if result:
+                        token = result.get("access_token")
+                        user = result.get("user")
+                        
+                        st.session_state[SESSION_AUTHENTICATED] = True
+                        st.session_state[SESSION_TOKEN] = token
+                        st.session_state[SESSION_USER_INFO] = user
+                        save_token_to_localstorage(token)
+                        logger.info(f"User logged in: {user.get('email')}")
+                        st.success(MSG_LOGIN_SUCCESS.format(email=user.get('email')))
+                        
+                        # Даем время для сохранения токена и отображения success message
+                        import time
+                        time.sleep(0.5)
+                        st.switch_page("pages/2_chat.py")
+                    else:
+                        st.error(MSG_LOGIN_ERROR)
     
     with tab2:
         st.markdown("#### Создать новый аккаунт")
@@ -145,28 +149,29 @@ with col2:
                         with st.spinner("Создаю аккаунт..."):
                             result = api_client.register(register_email, register_password)
                             
-                            if result:
-                                token = result.get("access_token")
-                                user = result.get("user")
-                                
-                                if not token or not user:
-                                    st.error("❌ Ошибка: неверный формат ответа от сервера")
-                                    logger.error(f"Invalid response format: {result}")
-                                else:
-                                    st.success(
-                                        MSG_REGISTER_SUCCESS.format(email=user.get('email'))
-                                    )
-                                    
-                                    # Автоматический вход
-                                    st.session_state[SESSION_AUTHENTICATED] = True
-                                    st.session_state[SESSION_TOKEN] = token
-                                    st.session_state[SESSION_USER_INFO] = user
-                                    save_token_to_localstorage(token)
-                                    
-                                    st.info("🔄 Перезагружаю страницу...")
-                                    st.rerun()
+                        if result:
+                            token = result.get("access_token")
+                            user = result.get("user")
+                            
+                            if not token or not user:
+                                st.error("❌ Ошибка: неверный формат ответа от сервера")
+                                logger.error(f"Invalid response format: {result}")
                             else:
-                                st.error(MSG_REGISTER_ERROR)
+                                st.success(
+                                    MSG_REGISTER_SUCCESS.format(email=user.get('email'))
+                                )
+                                
+                                # Автоматический вход
+                                st.session_state[SESSION_AUTHENTICATED] = True
+                                st.session_state[SESSION_TOKEN] = token
+                                st.session_state[SESSION_USER_INFO] = user
+                                save_token_to_localstorage(token)
+                                
+                                import time
+                                time.sleep(0.5)
+                                st.switch_page("pages/2_chat.py")
+                        else:
+                            st.error(MSG_REGISTER_ERROR)
 
 # st.markdown("---")
 

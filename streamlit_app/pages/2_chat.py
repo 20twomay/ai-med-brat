@@ -93,6 +93,8 @@ st.markdown("")
 # Индикатор контекста над чатом
 total_tokens = st.session_state.get(SESSION_TOTAL_TOKENS, 0)
 render_context_indicator(total_tokens)
+st.markdown("")
+st.markdown("")
 
 # Загрузка истории сообщений при открытии чата
 if st.session_state.get(SESSION_CHAT_ID) and not st.session_state.get(SESSION_MESSAGES_LOADED, False):

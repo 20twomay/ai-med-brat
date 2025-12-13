@@ -60,6 +60,22 @@ div[data-testid="stSidebar"] .stButton button {
 # ===== CHAT FORM STYLES =====
 CHAT_FORM_STYLE: Final[str] = """
 <style>
+/* Global Primary Button Color Override */
+button[kind="primary"] {
+    background: linear-gradient(135deg, #16A8B1 0%, #2EA9AC 100%) !important;
+    border: none !important;
+    color: white !important;
+}
+button[kind="primary"]:hover {
+    background: linear-gradient(135deg, #1497A0 0%, #26989B 100%) !important;
+    box-shadow: 0 2px 8px rgba(22, 168, 177, 0.3) !important;
+}
+button[kind="primary"]:focus {
+    background: linear-gradient(135deg, #1497A0 0%, #26989B 100%) !important;
+    box-shadow: 0 2px 8px rgba(22, 168, 177, 0.3) !important;
+    outline: none !important;
+}
+
 /* Скрыть стандартный sidebar toggle */
 [data-testid="collapsedControl"] {
     display: none;
@@ -89,6 +105,17 @@ CHAT_FORM_STYLE: Final[str] = """
     gap: 8px !important;
     transition: none !important;
     box-shadow: none !important;
+    width: 100% !important;
+}
+
+/* Горизонтальный блок внутри формы */
+[data-testid="stForm"] [data-testid="stHorizontalBlock"] {
+    width: 100% !important;
+    min-width: 100% !important;
+    gap: 10px !important;
+    align-items: flex-end !important;
+    display: flex !important;
+    flex-direction: row !important;
 }
 
 [data-testid="stForm"] > div:first-child:focus-within {
@@ -103,21 +130,26 @@ CHAT_FORM_STYLE: Final[str] = """
 }
 
 /* Первая колонка - растягиваем на доступное место */
-[data-testid="stForm"] [data-testid="column"]:first-child {
-    flex: 1 !important;
+[data-testid="stForm"] [data-testid="column"]:nth-of-type(1) {
+    flex: 1 1 auto !important;
+    width: auto !important;
     min-width: 0 !important;
+    max-width: 100% !important;
 }
 
 /* Вторая колонка - фиксированная ширина под кнопку */
-[data-testid="stForm"] [data-testid="column"]:last-child {
+[data-testid="stForm"] [data-testid="column"]:nth-of-type(2) {
     flex: 0 0 auto !important;
     width: auto !important;
+    min-width: 40px !important;
+    max-width: 50px !important;
 }
 
 /* Убираем все врапперы и отступы у input */
 [data-testid="stForm"] [data-testid="column"] > div {
     padding: 0 !important;
     margin: 0 !important;
+    width: 100% !important;
 }
 
 /* Поле ввода текста */
@@ -142,6 +174,8 @@ CHAT_FORM_STYLE: Final[str] = """
 
 /* Кнопка отправки - идеально круглая */
 [data-testid="stForm"] button[kind="primary"],
+[data-testid="stForm"] button[kind="primaryFormSubmit"],
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] button,
 [data-testid="stForm"] button[type="submit"] {
     background: linear-gradient(135deg, #16A8B1 0%, #2EA9AC 100%) !important;
     color: white !important;
@@ -166,6 +200,8 @@ CHAT_FORM_STYLE: Final[str] = """
 }
 
 [data-testid="stForm"] button[kind="primary"]:hover,
+[data-testid="stForm"] button[kind="primaryFormSubmit"]:hover,
+[data-testid="stForm"] [data-testid="stFormSubmitButton"] button:hover,
 [data-testid="stForm"] button[type="submit"]:hover {
     background: linear-gradient(135deg, #1497A0 0%, #26989B 100%) !important;
     box-shadow: 0 2px 8px rgba(22, 168, 177, 0.3) !important;

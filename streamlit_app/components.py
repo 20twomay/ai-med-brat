@@ -155,7 +155,7 @@ def render_user_profile_button(api_client: APIClient) -> None:
         
         # Модальное окно с профилем (только отображение, без кнопок)
         if st.session_state.get(SESSION_SHOW_PROFILE_MODAL, False):
-            with st.expander("⚙️ Настройки профиля", expanded=True):
+            with st.expander("Настройки профиля", expanded=True):
                 st.markdown("### Информация о пользователе")
                 st.text_input(
                     "Email",
